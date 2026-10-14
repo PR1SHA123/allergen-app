@@ -72,7 +72,8 @@
         });
 
         // Read the text from the photo
-        const { data } = await worker.recognize(file);
+        const cleanImage = await prepareImage(file);
+        const { data } = await worker.recognize(cleanImage);
         output.textContent = data.text.trim() || '(No text found. Try a closer, sharper photo.)';
         status.textContent = 'Done! Confidence: ' + Math.round(data.confidence) + '%';
 
@@ -81,6 +82,34 @@
         status.textContent = 'Something went wrong: ' + err.message;
       }
     });
+
+        // Makes the photo easier to read: right size, black-and-white, higher contrast
+    async function prepareImage(file) {
+      const img = await createImageBitmap(file);
+
+      // Resize so the longest side is about 2000 pixels (big enough to read, fast enough to process)
+      const scale = Math.min(3, 2000 / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // Go through every pixel: make it gray, then push darks darker and lights lighter
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const px = imageData.data;
+      for (let i = 0; i < px.length; i += 4) {
+        let gray = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        gray = (gray - 128) * 1.5 + 128;          // boost contrast
+        gray = Math.max(0, Math.min(255, gray));  // keep within 0–255
+        px[i] = px[i + 1] = px[i + 2] = gray;
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      // Show the cleaned-up version so we can see what the reader sees
+      preview.src = canvas.toDataURL();
+      return canvas;
+    }
   </script>
 </body>
 </html>
