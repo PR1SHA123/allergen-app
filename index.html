@@ -1,7 +1,86 @@
 <!DOCTYPE html>
-<html>
-<head><title>Allergen App</title></head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Allergen App</title>
+
+  <!-- Tesseract.js: a free library that reads text from images (called OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.5rem; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    select, input { font-size: 1rem; margin-top: 8px; width: 100%; padding: 10px; box-sizing: border-box; }
+    #preview { max-width: 100%; margin-top: 16px; display: none; border-radius: 8px; }
+    #status { margin-top: 16px; color: #555; }
+    #output { white-space: pre-wrap; background: #f3f3f3; padding: 12px; border-radius: 8px; margin-top: 8px; min-height: 60px; }
+  </style>
+</head>
 <body>
-  <h1>Hello from Prisha's Allergen App!</h1>
+  <h1>Allergen Label Reader</h1>
+
+  <!-- Step 1: user picks the label's language -->
+  <label for="lang">1. Label language</label>
+  <select id="lang">
+    <option value="eng">English</option>
+    <option value="hin+eng">Hindi (हिन्दी)</option>
+    <option value="chi_sim+eng">Chinese (中文)</option>
+  </select>
+
+  <!-- Step 2: user takes or picks a photo -->
+  <label for="photo">2. Take or choose a photo of the ingredient list</label>
+  <input type="file" id="photo" accept="image/*">
+
+  <img id="preview" alt="Label photo">
+  <p id="status"></p>
+
+  <label>Text found:</label>
+  <div id="output"></div>
+
+  <script>
+    // Grab the page elements we need
+    const photoInput = document.getElementById('photo');
+    const langSelect = document.getElementById('lang');
+    const preview    = document.getElementById('preview');
+    const status     = document.getElementById('status');
+    const output     = document.getElementById('output');
+
+    // Runs every time the user picks a photo
+    photoInput.addEventListener('change', async () => {
+      const file = photoInput.files[0];
+      if (!file) return;
+
+      // Show the photo on screen
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+      output.textContent = '';
+
+      // "hin+eng" becomes ["hin", "eng"] so the reader knows both languages
+      const languages = langSelect.value.split('+');
+      status.textContent = 'Loading reader (first time can take ~30 seconds)...';
+
+      try {
+        // Create the OCR reader for the chosen languages
+        const worker = await Tesseract.createWorker(languages, 1, {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              status.textContent = 'Reading text... ' + Math.round(m.progress * 100) + '%';
+            }
+          }
+        });
+
+        // Read the text from the photo
+        const { data } = await worker.recognize(file);
+        output.textContent = data.text.trim() || '(No text found. Try a closer, sharper photo.)';
+        status.textContent = 'Done! Confidence: ' + Math.round(data.confidence) + '%';
+
+        await worker.terminate(); // free up memory
+      } catch (err) {
+        status.textContent = 'Something went wrong: ' + err.message;
+      }
+    });
+  </script>
 </body>
 </html>
