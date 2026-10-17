@@ -6,7 +6,7 @@
 // right away instead of being stuck on an old version.
 // ============================================================
 
-const CACHE = "allergen-app-v8";
+const CACHE = "allergen-app-v10";
 
 // The app's own files, saved when the app is installed
 const APP_FILES = [
@@ -15,7 +15,12 @@ const APP_FILES = [
 ];
 
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_FILES)));
+  // Save each file on its own, so one missing file can't stop the whole install
+  event.waitUntil(
+    caches.open(CACHE).then(cache =>
+      Promise.allSettled(APP_FILES.map(f => cache.add(new Request(f, { cache: "no-cache" }))))
+    )
+  );
   self.skipWaiting();
 });
 
@@ -36,8 +41,12 @@ self.addEventListener("fetch", event => {
   const isLibrary = url.hostname === "cdn.jsdelivr.net" || url.hostname === "unpkg.com";
   if (!isOurFile && !isLibrary) return; // e.g. the food database: always go online
 
+  // For our own files, skip the browser's short-term cache ("no-cache")
+  // so a new version on GitHub shows up right away
+  const fresh = isOurFile ? fetch(req.url, { cache: "no-cache", credentials: "same-origin" }) : fetch(req);
+
   event.respondWith(
-    fetch(req)
+    fresh
       .then(response => {
         // Save a copy for next time we're offline
         const copy = response.clone();
