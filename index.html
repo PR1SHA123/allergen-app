@@ -20,13 +20,14 @@
 
   <!-- Tesseract.js: reads text from photos (OCR) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <!-- html5-qrcode: reads barcodes with the camera -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- ZXing: reads barcodes (saved in lib/ so it works offline) -->
+  <script src="lib/zxing-reader.js"></script>
   <!-- Our own files -->
   <script src="allergens.js"></script>
   <script src="diets.js"></script>
   <script src="checker.js"></script>
   <script src="barcode.js"></script>
+  <script src="scan.js"></script>
   <script src="dishes.js"></script>
   <script src="askcook.js"></script>
   <script src="mascot.js"></script>
@@ -173,7 +174,14 @@
 
     #reader { border-radius: 18px; overflow: hidden; margin-top: 14px; background: #000; display: none; }
     #reader.active { display: block; min-height: 260px; }
-    #reader video { width: 100% !important; height: auto !important; display: block; }
+    #reader { position: relative; }
+    #reader.active { min-height: 0; }
+    #reader video { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+    #reader .scan-frame { position: absolute; left: 5%; right: 5%; top: 20%; bottom: 20%;
+      border: 3px solid rgba(255,255,255,.9); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0,0,0,.28); pointer-events: none; }
+    #reader .scan-line { position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: #FF6B6B;
+      box-shadow: 0 0 8px #FF6B6B; animation: scanline 1.6s ease-in-out infinite alternate; }
+    @keyframes scanline { from { top: 18%; } to { top: 82%; } }
     #photoPreview { width: 100%; border-radius: 18px; margin-top: 14px; display: block; }
     .progress { height: 10px; background: var(--soft); border: 2px solid var(--line); border-radius: 99px; overflow: hidden; margin-top: 16px; }
     .progress > div { height: 100%; width: 0; background: var(--primary); border-radius: 99px; transition: width .2s; }
@@ -422,7 +430,6 @@
     <div id="reader"></div>
     <label class="btn big ghost" for="barcodePhoto" style="margin-top:10px">📷 Take a photo of the barcode instead</label>
     <input type="file" id="barcodePhoto" accept="image/*" capture="environment" hidden>
-    <div id="readerFile" hidden></div>
     <p class="hint">Or type the number under the barcode.</p>
     <div class="field-row">
       <input type="text" id="barcodeInput" inputmode="numeric" placeholder="e.g. 044000032029" aria-label="Barcode number">
@@ -553,7 +560,7 @@
         <li>Label photos are read on your phone and aren't uploaded.</li>
       </ul>
       <h3>Credits</h3>
-      <p>Product data from <b>Open Food Facts</b> (openfoodfacts.org), shared under the Open Database License. Text reading by Tesseract.js. Barcode reading by html5-qrcode. AI by Google Gemini.</p>
+      <p>Product data from <b>Open Food Facts</b> (openfoodfacts.org), shared under the Open Database License. Text reading by Tesseract.js. Barcode reading by ZXing. AI by Google Gemini.</p>
       <p>Made for the 2026 Congressional App Challenge.</p>
     </div>
     <button class="btn ghost big" id="showSafety">Show the safety notice again</button>
@@ -1201,7 +1208,7 @@
   // ============================================================
   // SCAN
   // ============================================================
-  let scanner = null, lastScan = null;
+  let stopCamera = null, lastScan = null;
 
   async function checkBarcode(code) {
     $('scanResult').innerHTML = '';
@@ -1224,25 +1231,17 @@
     }
   }
 
-  async function stopScanner() {
-    if (scanner) { try { await scanner.stop(); } catch (e) {} scanner = null; }
+  function stopScanner() {
+    if (stopCamera) { try { stopCamera(); } catch (e) {} stopCamera = null; }
     $('reader').innerHTML = '';
     $('reader').classList.remove('active');
     $('stopBtn').hidden = true;
     $('scanBtn').hidden = false;
   }
 
-  // The settings for the barcode reader library
-  function newScanner(elementId) {
-    const F = Html5QrcodeSupportedFormats;
-    return new Html5Qrcode(elementId, {
-      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E],   // food barcodes
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true }, // faster on phones that have it built in
-      verbose: false
-    });
-  }
-
   function foundBarcode(code) {
+    // UPC codes sometimes come back with an extra 0 in front; show the usual 12 digits
+    if (code.length === 13 && code.startsWith('0')) code = code.slice(1);
     if (navigator.vibrate) navigator.vibrate(60);
     $('barcodeInput').value = code;
     checkBarcode(code);
@@ -1250,8 +1249,8 @@
 
   $('scanBtn').addEventListener('click', async () => {
     $('scanResult').innerHTML = '';
-    if (typeof Html5Qrcode === 'undefined') {
-      $('scanStatus').textContent = 'The scanner didn\'t load. Check your internet and reload the app, or take a photo of the barcode instead.';
+    if (typeof ZXingWASM === 'undefined') {
+      $('scanStatus').textContent = 'The scanner didn\'t load. Reload the app, or type the number under the barcode.';
       return;
     }
     if (!window.isSecureContext || !navigator.mediaDevices) {
@@ -1262,18 +1261,8 @@
       $('reader').classList.add('active');
       $('scanBtn').hidden = true; $('stopBtn').hidden = false;
       $('scanStatus').textContent = 'Starting the camera… If your phone asks, tap Allow.';
-      scanner = newScanner('reader');
-      await scanner.start(
-        { facingMode: 'environment' },   // the back camera
-        {
-          fps: 10,
-          // The scanning box: wide and short, like a barcode, and never bigger than the screen
-          qrbox: (w, h) => ({ width: Math.floor(Math.min(300, w * 0.85)), height: Math.floor(Math.min(150, h * 0.45)) })
-        },
-        async code => { await stopScanner(); foundBarcode(code); },
-        () => {}   // "no barcode in this frame yet": ignore
-      );
-      $('scanStatus').textContent = 'Hold the barcode inside the box, about 6 inches away.';
+      stopCamera = await startLiveScan($('reader'), code => { stopCamera = null; stopScanner(); foundBarcode(code); });
+      $('scanStatus').textContent = 'Fill the box with the barcode, about 4–6 inches away. Hold still for a second.';
     } catch (err) {
       const msg = String(err && (err.name || err.message || err));
       $('scanStatus').textContent = /NotAllowed|Permission/i.test(msg)
@@ -1288,18 +1277,19 @@
     const file = $('barcodePhoto').files[0];
     $('barcodePhoto').value = '';
     if (!file) return;
-    if (typeof Html5Qrcode === 'undefined') {
-      $('scanStatus').textContent = 'The scanner didn\'t load. Check your internet and reload the app, or type the number.';
+    if (typeof ZXingWASM === 'undefined') {
+      $('scanStatus').textContent = 'The scanner didn\'t load. Reload the app, or type the number under the barcode.';
       return;
     }
-    await stopScanner();
+    stopScanner();
     $('scanResult').innerHTML = '';
     $('scanStatus').textContent = 'Reading the barcode in your photo…';
     try {
-      const code = await newScanner('readerFile').scanFile(file, false);
-      foundBarcode(code);
+      const code = await readBarcodeFromPhoto(file);
+      if (code) foundBarcode(code);
+      else $('scanStatus').textContent = 'I couldn\'t find a barcode in that photo. Get closer so the barcode fills most of the photo, in good light, or type the number.';
     } catch (err) {
-      $('scanStatus').textContent = 'I couldn\'t find a barcode in that photo. Get closer so the barcode fills the photo, with good light, or type the number.';
+      $('scanStatus').textContent = 'Something went wrong reading that photo. Try again, or type the number.';
     }
   });
   $('stopBtn').addEventListener('click', () => { stopScanner(); $('scanStatus').textContent = ''; });
