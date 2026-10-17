@@ -113,7 +113,7 @@
     }
     @keyframes wave { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-16deg); } }
     @keyframes bob { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -4px); } }
-    .bao-wave { transform-origin: 83px 66px; animation: wave 1.4s ease-in-out 2; }
+    .bao-wave { animation: wave 1.4s ease-in-out 2; }
     .scene .bao-spot { animation: bob 3s ease-in-out infinite; }
     @media (prefers-reduced-motion: reduce) { .bao-wave, .scene .bao-spot { animation: none; } }
 
@@ -251,6 +251,23 @@
     .tile[aria-pressed="true"] .blob::after { content: "✓"; font-weight: 900; color: var(--ink); font-size: 0.95rem; }
     .sheet .btn.big { margin-top: 18px; }
 
+    /* ========== Buddy studio ========== */
+    .studio-preview { display: flex; justify-content: center; align-items: flex-end; gap: 4px; margin: 4px 0 6px; min-height: 130px; }
+    .studio-preview .bao { cursor: pointer; }
+    .mood-hint { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 0 0 14px; }
+    .studio h3 { font-size: 1rem; font-weight: 900; margin: 18px 0 8px; }
+    .buddy-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .buddy-pick {
+      background: var(--surface); border: 2px solid var(--line); border-radius: 18px; box-shadow: 0 3px 0 var(--line);
+      padding: 4px 2px 6px; display: flex; flex-direction: column; align-items: center;
+      font-size: 0.75rem; font-weight: 800; color: var(--muted);
+    }
+    .buddy-pick[aria-pressed="true"] { border-color: var(--primary); background: #E3E7FF; color: var(--primary); box-shadow: 0 3px 0 var(--primary); }
+    .scene .edit-buddy {
+      position: absolute; right: 12px; bottom: 12px; border: 2px solid #4A3B35; background: #fff;
+      border-radius: 999px; padding: 5px 12px; font-weight: 900; font-size: 0.85rem;
+    }
+
     /* ========== Floating tab bar ========== */
     nav.tabs {
       position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 30;
@@ -286,7 +303,8 @@
       <span class="cloud" style="width:44px;height:16px;right:84px;top:58px"></span>
       <div class="bubble" id="homeBubble">What are we eating today?</div>
       <span class="plate"></span>
-      <div class="bao-spot" id="homeBao"></div>
+      <div class="bao-spot" id="homeBao" role="button" aria-label="Customize your buddy" style="cursor:pointer"></div>
+      <button class="edit-buddy" id="editBuddy">Customize</button>
     </div>
 
     <div class="actions">
@@ -382,10 +400,26 @@
 <div class="sheet-backdrop" id="sheet" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
     <div id="sheetBao"></div>
-    <h2 id="sheetTitle">Hi, I'm Bao! What are you allergic to?</h2>
+    <h2 id="sheetTitle">What are you allergic to?</h2>
     <p>Tap everything that applies. I'll watch out for these.</p>
     <div class="allergy-grid" id="allergyGrid"></div>
     <button class="btn big" id="sheetDone">Save</button>
+  </div>
+</div>
+
+<!-- ===================== Buddy studio ===================== -->
+<div class="sheet-backdrop" id="studio" hidden>
+  <div class="sheet studio" role="dialog" aria-modal="true" aria-labelledby="studioTitle">
+    <h2 id="studioTitle">Make your buddy</h2>
+    <div class="studio-preview" id="studioPreview"></div>
+    <p class="mood-hint">Tap your buddy to see its moods</p>
+    <label class="hint" for="buddyName" style="display:block; margin:0 0 6px">Name</label>
+    <input type="text" id="buddyName" maxlength="14" placeholder="Give it a name">
+    <h3>Character</h3>
+    <div class="buddy-grid" id="buddyGrid"></div>
+    <h3>Accessory</h3>
+    <div class="chips" id="accChips"></div>
+    <button class="btn big" id="studioDone">Save buddy</button>
   </div>
 </div>
 
@@ -427,7 +461,8 @@
   }
 
   function openSheet() {
-    $('sheetBao').innerHTML = baoSvg('wave', 76);
+    $('sheetBao').innerHTML = baoSvg('wave', 84);
+    $('sheetTitle').textContent = `Hi, I'm ${getBuddy().name}! What are you allergic to?`;
     $('allergyGrid').innerHTML = ALLERGENS.map(a => `
       <button class="tile" data-id="${a.id}" style="--c:${COLORS[a.id]}" aria-pressed="${myAllergies.includes(a.id)}">
         <span class="blob"></span>${a.name}
@@ -470,7 +505,8 @@
     const h = new Date().getHours();
     $('greeting').textContent = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
     $('homeBao').innerHTML = baoSvg('wave', 120);
-    $('homeBubble').textContent = myAllergies.length ? 'What are we eating today?' : 'Hi! Tell me your allergies first.';
+    const nm = getBuddy().name;
+    $('homeBubble').textContent = myAllergies.length ? `${nm} here! What are we eating today?` : `Hi, I'm ${nm}! Tell me your allergies first.`;
 
     const picks = ['Pad thai', 'Pizza', 'Samosa', 'Sushi', 'Biryani', 'Ramen', 'Butter chicken', 'Ice cream'];
     $('dishCarousel').innerHTML = picks.map(name => `<button class="chip" data-dish="${name}">${name}</button>`).join('');
@@ -733,6 +769,58 @@
   });
   $('fullBtn').addEventListener('click', () => { $('fullCardText').innerHTML = cookHtml(); $('fullCard').hidden = false; });
   $('fullClose').addEventListener('click', () => { $('fullCard').hidden = true; });
+
+  // ============================================================
+  // BUDDY STUDIO: pick a character, an accessory, and a name
+  // ============================================================
+  let draft = getBuddy();
+  const MOOD_CYCLE = ['wave', 'happy', 'unsure', 'stop'];
+  let moodIndex = 0;
+
+  function renderStudio() {
+    $('studioPreview').innerHTML = buddySvg(MOOD_CYCLE[moodIndex], 130, draft);
+    $('buddyGrid').innerHTML = Object.entries(BUDDIES).map(([key, b]) =>
+      `<button class="buddy-pick" data-body="${key}" aria-pressed="${key === draft.body}">
+         ${buddySvg('happy', 62, { body: key, acc: 'none' })}${b.label}</button>`).join('');
+    $('accChips').innerHTML = Object.entries(ACCESSORIES).map(([key, a]) =>
+      `<button class="chip" data-acc="${key}" aria-pressed="${key === draft.acc}">${a.label}</button>`).join('');
+  }
+
+  function openStudio() {
+    draft = getBuddy();
+    moodIndex = 0;
+    $('buddyName').value = draft.name;
+    renderStudio();
+    $('studio').hidden = false;
+  }
+
+  $('studioPreview').addEventListener('click', () => {
+    moodIndex = (moodIndex + 1) % MOOD_CYCLE.length;
+    $('studioPreview').innerHTML = buddySvg(MOOD_CYCLE[moodIndex], 130, draft);
+  });
+  $('buddyGrid').addEventListener('click', e => {
+    const b = e.target.closest('[data-body]');
+    if (!b) return;
+    // If the name is still the old character's default, suggest one for the new character
+    const oldDefault = BUDDIES[draft.body].label;
+    if (!$('buddyName').value.trim() || $('buddyName').value.trim() === oldDefault || $('buddyName').value.trim() === DEFAULT_BUDDY.name) {
+      $('buddyName').value = BUDDIES[b.dataset.body].label;
+    }
+    draft.body = b.dataset.body;
+    renderStudio();
+  });
+  $('accChips').addEventListener('click', e => {
+    const c = e.target.closest('[data-acc]');
+    if (c) { draft.acc = c.dataset.acc; renderStudio(); }
+  });
+  $('studioDone').addEventListener('click', () => {
+    draft.name = $('buddyName').value.trim() || BUDDIES[draft.body].label;
+    setBuddy(draft);
+    $('studio').hidden = true;
+    refreshAll();
+  });
+  $('homeBao').addEventListener('click', openStudio);
+  $('editBuddy').addEventListener('click', openStudio);
 
   // ============================================================
   // Start up

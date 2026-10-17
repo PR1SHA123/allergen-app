@@ -6,7 +6,7 @@
 // right away instead of being stuck on an old version.
 // ============================================================
 
-const CACHE = "allergen-app-v4";
+const CACHE = "allergen-app-v5";
 
 // The app's own files, saved when the app is installed
 const APP_FILES = [
