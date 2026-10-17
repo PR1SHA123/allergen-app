@@ -10,6 +10,11 @@
   <!-- Our own files -->
   <script src="allergens.js"></script>
   <script src="checker.js"></script>
+  <script src="barcode.js"></script>
+  <script src="dishes.js"></script>
+  <script src="askcook.js"></script>
+  <!-- html5-qrcode: a free library that reads barcodes with the phone camera -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <style>
     body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; color: #1a1a1a; }
@@ -31,6 +36,12 @@
     .disclaimer { font-size: 0.85rem; color: #666; margin-top: 16px; }
     details { margin-top: 16px; }
     #output { white-space: pre-wrap; background: #f3f3f3; padding: 12px; border-radius: 8px; margin-top: 8px; }
+    .lang-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .lang-row button { background: #e8e8e8; color: #1a1a1a; margin-top: 0; padding: 8px 12px; }
+    .lang-row button.active { background: #1a1a1a; color: white; }
+    #cookCard { margin-top: 12px; padding: 20px; border: 3px solid #1a1a1a; border-radius: 12px;
+                font-size: 1.3rem; line-height: 1.6; background: white; }
+    #cookCard .list { font-weight: 800; font-size: 1.5rem; color: #a4262c; margin: 10px 0; }
   </style>
 </head>
 <body>
@@ -41,7 +52,17 @@
   <h2>My allergies</h2>
   <div class="allergy-grid" id="allergyGrid"></div>
 
-  <h2>Check a label</h2>
+  <h2>Scan a barcode</h2>
+  <button id="scanBtn">📷 Scan barcode</button>
+  <button id="stopBtn" style="display:none; background:#666">Stop camera</button>
+  <div id="reader" style="margin-top:12px"></div>
+  <label class="step" for="barcodeInput">…or type the barcode number</label>
+  <input type="text" id="barcodeInput" inputmode="numeric" placeholder="e.g. 044000032029"
+         style="font-size:1rem; margin-top:8px; width:100%; padding:10px; box-sizing:border-box">
+  <button id="lookupBtn">Look up</button>
+  <p id="productName" style="font-weight:600; margin-top:12px"></p>
+
+  <h2>…or check a label photo</h2>
   <label class="step" for="lang">1. Label language</label>
   <select id="lang">
     <option value="eng">English</option>
@@ -73,6 +94,20 @@
     <div id="output"></div>
   </details>
 
+  <!-- ===== Food with no label ===== -->
+  <h2>🍽️ Food with no label</h2>
+  <p style="margin-top:0">Restaurant, party, or homemade food? Type the dish to see what it usually contains.</p>
+  <input type="text" id="dishInput" list="dishNames" placeholder="e.g. pad thai, samosa, sushi"
+         style="font-size:1rem; width:100%; padding:10px; box-sizing:border-box">
+  <datalist id="dishNames"></datalist>
+  <button id="dishBtn">Check dish</button>
+  <div id="dishResult"></div>
+
+  <h2>🗣️ Ask the cook</h2>
+  <p style="margin-top:0">Show this to the server, cook, or host.</p>
+  <div class="lang-row" id="cookLangs"></div>
+  <div id="cookCard"></div>
+
   <script>
     const photoInput = document.getElementById('photo');
     const langSelect = document.getElementById('lang');
@@ -95,7 +130,94 @@
       myAllergies = [...grid.querySelectorAll('input:checked')].map(i => i.value);
       try { localStorage.setItem('myAllergies', JSON.stringify(myAllergies)); } catch (e) {}
       if (lastText) showResults(lastText); // re-check the current label instantly
+      if (lastDish) showDish(lastDish);
+      renderCookCard();
     });
+
+    // ---------- Food with no label ----------
+    const dishResult = document.getElementById('dishResult');
+    let lastDish = null;
+
+    // Fill the suggestion list with every dish name
+    document.getElementById('dishNames').innerHTML =
+      DISHES.map(d => `<option value="${d.names[0]}">`).join('');
+
+    function allergenById(id) { return ALLERGENS.find(a => a.id === id); }
+
+    function showDish(dish) {
+      lastDish = dish;
+      const mineUsually   = dish.usually.filter(id => myAllergies.includes(id));
+      const mineSometimes = dish.sometimes.filter(id => myAllergies.includes(id));
+
+      // Never say "safe" for food with no label: we can't see what's inside
+      let cls, text;
+      if (myAllergies.length === 0) {
+        cls = 'maybe'; text = 'Pick your allergies above to see what to watch for';
+      } else if (mineUsually.length) {
+        cls = 'unsafe'; text = '❌ Usually contains your allergen. Ask before eating.';
+      } else if (mineSometimes.length) {
+        cls = 'maybe'; text = '⚠️ Sometimes contains your allergen. Ask before eating.';
+      } else {
+        cls = 'safe'; text = '✅ Not usually in this dish, but recipes vary. Still ask!';
+      }
+
+      let html = `<p style="font-weight:600; margin-top:12px">${dish.names[0]}</p>
+                  <div class="${cls}" style="padding:16px; border-radius:12px; font-weight:700; font-size:1.15rem; text-align:center">${text}</div>`;
+      for (const [ids, label] of [[dish.usually, 'Usually contains'], [dish.sometimes, 'Sometimes contains']]) {
+        for (const id of ids) {
+          const a = allergenById(id);
+          const isMine = myAllergies.includes(id);
+          const style = isMine ? (label === 'Usually contains' ? 'unsafe' : 'maybe') : '';
+          html += `<div class="found ${style}" style="${style ? '' : 'background:#f3f3f3'}">
+                     ${a.emoji} <b>${label}: ${a.name}</b>${isMine ? ' (your allergy)' : ''}</div>`;
+        }
+      }
+      if (!dish.usually.length && !dish.sometimes.length) {
+        html += '<div class="found" style="background:#f3f3f3">No major allergens in the usual recipe.</div>';
+      }
+      html += '<p class="disclaimer">These are common recipes, not a guarantee. Every cook is different, so always ask.</p>';
+      dishResult.innerHTML = html;
+    }
+
+    document.getElementById('dishBtn').addEventListener('click', () => {
+      const typed = document.getElementById('dishInput').value;
+      const dish = findDish(typed);
+      if (dish) {
+        showDish(dish);
+      } else {
+        lastDish = null;
+        dishResult.innerHTML = `<div class="found maybe">"${typed.replace(/</g, '&lt;')}" isn't in the dish guide yet.
+          Use the Ask-the-cook card below to check with the cook.</div>`;
+      }
+    });
+
+    // ---------- Ask the cook ----------
+    let cookLang = 'en';
+    try { cookLang = localStorage.getItem('cookLang') || 'en'; } catch (e) {}
+
+    function renderCookCard() {
+      // Language buttons
+      document.getElementById('cookLangs').innerHTML = COOK_LANGUAGES.map(l =>
+        `<button data-lang="${l.id}" class="${l.id === cookLang ? 'active' : ''}">${l.label}</button>`).join('');
+
+      const card = document.getElementById('cookCard');
+      if (myAllergies.length === 0) {
+        card.innerHTML = '<span style="font-size:1rem; color:#555">Pick your allergies above and your card will appear here.</span>';
+        return;
+      }
+      const c = cookCardText(cookLang, myAllergies);
+      card.innerHTML = `${c.before}<div class="list">${c.list}</div>${c.after}`;
+    }
+
+    document.getElementById('cookLangs').addEventListener('click', e => {
+      const id = e.target.dataset.lang;
+      if (!id) return;
+      cookLang = id;
+      try { localStorage.setItem('cookLang', id); } catch (err) {}
+      renderCookCard();
+    });
+
+    renderCookCard();
 
     // ---------- Show results ----------
     let lastText = '';
@@ -145,10 +267,75 @@
       }
     }
 
+    // ---------- Barcode ----------
+    const productName = document.getElementById('productName');
+    let scanner = null;
+
+    async function checkBarcode(code) {
+      preview.style.display = 'none';
+      verdict.style.display = 'none';
+      foundList.innerHTML = '';
+      productName.textContent = '';
+      status.textContent = 'Looking up barcode ' + code + '...';
+      try {
+        const result = await lookupBarcode(code);
+        if (!result.found) {
+          status.textContent = '';
+          productName.textContent = '🔍 Barcode ' + code + ' is not in the database. Take a photo of the ingredient list below instead.';
+          return;
+        }
+        productName.textContent = '📦 ' + result.name;
+        if (!result.hasData) {
+          status.textContent = 'This product has no ingredient info yet. Take a photo of the ingredient list below instead.';
+          return;
+        }
+        status.textContent = 'Found in Open Food Facts';
+        showResults(result.text);
+      } catch (err) {
+        status.textContent = 'Could not look up the barcode. Check your internet connection.';
+      }
+    }
+
+    async function stopScanner() {
+      if (scanner) { try { await scanner.stop(); } catch (e) {} scanner = null; }
+      document.getElementById('stopBtn').style.display = 'none';
+      document.getElementById('scanBtn').style.display = 'inline-block';
+    }
+
+    document.getElementById('scanBtn').addEventListener('click', async () => {
+      const F = Html5QrcodeSupportedFormats;
+      scanner = new Html5Qrcode('reader', {
+        formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E]  // food barcodes
+      });
+      document.getElementById('scanBtn').style.display = 'none';
+      document.getElementById('stopBtn').style.display = 'inline-block';
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },            // use the back camera
+          { fps: 10, qrbox: { width: 260, height: 120 } },
+          async code => {                            // runs when a barcode is read
+            await stopScanner();
+            document.getElementById('barcodeInput').value = code;
+            checkBarcode(code);
+          }
+        );
+      } catch (err) {
+        status.textContent = 'Could not open the camera: ' + err;
+        stopScanner();
+      }
+    });
+
+    document.getElementById('stopBtn').addEventListener('click', stopScanner);
+
+    document.getElementById('lookupBtn').addEventListener('click', () => {
+      const code = document.getElementById('barcodeInput').value.trim();
+      if (code) checkBarcode(code);
+    });
+
     // ---------- Typed text ----------
     document.getElementById('checkTyped').addEventListener('click', () => {
       const t = document.getElementById('typed').value.trim();
-      if (t) { preview.style.display = 'none'; status.textContent = ''; showResults(t); }
+      if (t) { preview.style.display = 'none'; status.textContent = ''; productName.textContent = ''; showResults(t); }
     });
 
     // ---------- Photo ----------
@@ -160,6 +347,7 @@
 
       preview.src = URL.createObjectURL(file);
       preview.style.display = 'block';
+      productName.textContent = '';
       verdict.style.display = 'none';
       foundList.innerHTML = '';
 
