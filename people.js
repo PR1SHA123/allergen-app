@@ -206,6 +206,9 @@ function slugify(text) {
 
 // Turns "Kiwi" + "kiwifruit, chinese gooseberry" into a custom allergy
 function makeCustom(name, wordsText) {
+  name = String(name).trim();
+  const cleaned = cleanAllergyWord(name);
+  if (cleaned) name = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);   // "banana allergy" -> "Banana"
   const words = [name].concat(String(wordsText || "").split(/[,，、\n]/))
     .map(w => w.trim().toLowerCase())
     .filter(w => w.length >= 2);
@@ -216,15 +219,55 @@ function makeCustom(name, wordsText) {
 // so checkLabel() can use it exactly like milk or peanut.
 function customAsAllergen(c) {
   const en = [], other = [];
-  for (const w of c.words) {
-    if (/^[\x00-\x7F]+$/.test(w)) {
-      en.push(w);
-      if (!w.endsWith("s")) en.push(w + "s", w + "es");   // kiwi -> kiwis, mango -> mangoes
-    } else {
-      other.push(w);
-    }
+  const words = c.words.map(cleanAllergyWord).filter(w => w.length >= 2);
+  // Add closely related foods that labels use instead (banana -> plantain)
+  const related = [];
+  for (const w of words) for (const r of relatedFoods(w)) if (!words.includes(r)) related.push(r);
+  for (const w of words.concat(related)) {
+    if (/^[\x00-\x7F]+$/.test(w)) en.push(...wordForms(w));
+    else other.push(w);
   }
-  return { id: c.id, name: c.name, emoji: "⭐", words: { en: en, other: other }, exclude: [], custom: true };
+  return { id: c.id, name: c.name, emoji: "⭐", words: { en: [...new Set(en)], other: other },
+           exclude: [], custom: true, related: related };
+}
+
+// "Banana allergy" or "allergic to bananas" -> "banana"/"bananas"
+function cleanAllergyWord(w) {
+  return String(w).toLowerCase()
+    .replace(/\b(allergic to|allergy to|allergies|allergy|allergic|intolerance|intolerant|sensitivity)\b/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+// Singular and plural forms, so "Bananas" also finds "banana" and the other way around
+function wordForms(w) {
+  const out = [w];
+  if (/ies$/.test(w)) out.push(w.slice(0, -3) + "y");                         // berries -> berry
+  else if (/(x|z|ch|sh|o)es$/.test(w)) out.push(w.slice(0, -2));             // mangoes -> mango
+  else if (/s$/.test(w) && !/ss$/.test(w)) out.push(w.slice(0, -1));         // bananas -> banana
+  if (/[^aeiou]y$/.test(w)) out.push(w.slice(0, -1) + "ies");                // berry -> berries
+  else if (/(ss|x|z|ch|sh|o)$/.test(w)) out.push(w + "es", w + "s");         // mango -> mangoes
+  else if (!/s$/.test(w)) out.push(w + "s");                                  // kiwi -> kiwis
+  return [...new Set(out)].filter(x => x.length >= 2);
+}
+
+// Foods that are so closely related that a label may use the other name
+const RELATED_FOODS = {
+  banana: ["plantain", "musa"],
+  plantain: ["banana"],
+  corn: ["maize", "cornstarch", "corn starch", "corn syrup", "cornmeal", "polenta"],
+  maize: ["corn"],
+  chickpea: ["garbanzo", "besan", "gram flour", "chana"],
+  coconut: ["copra"],
+  kiwi: ["kiwifruit", "chinese gooseberry"],
+  buckwheat: ["soba"],
+  lupin: ["lupine", "lupini"],
+  celery: ["celeriac"],
+  mustard: ["mustard seed", "mustard flour"],
+  pea: ["pea protein"]
+};
+function relatedFoods(w) {
+  const base = wordForms(w).find(f => RELATED_FOODS[f]);
+  return base ? RELATED_FOODS[base] : [];
 }
 
 // Every custom allergy anyone in the group has (no repeats)

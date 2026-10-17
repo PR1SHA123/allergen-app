@@ -1071,6 +1071,7 @@
       }
     }
     const w = word.toLowerCase();
+    if (a.related && a.related.some(r => w === r || w.startsWith(r))) return `${word} (related to ${base})`;
     if (!base || w.includes(base) || base.includes(w.replace(/s$/, ''))) return word;
     return `${word} (from ${base})`;
   }
@@ -1188,10 +1189,21 @@
 
   function renderLabelResult(container, text, extra = {}) {
     const found = checkLabel(text, groupExtras());
+    // Database ingredient lists are sometimes incomplete. If the product's NAME
+    // mentions someone's own allergy ("Banana Chips"), count it too.
+    const why = {};
+    if (extra.product) {
+      const inName = checkLabel(extra.product, groupExtras());
+      for (const id of Object.keys(inName)) {
+        if (!allergenById(id).custom || (found[id] && found[id].status === 'contains')) continue;
+        found[id] = { status: 'contains', words: inName[id].words };
+        why[id] = 'The product name says "' + inName[id].words[0] + '"';
+      }
+    }
     const ids = Object.keys(found).sort((a, b) =>
       (myAllergies.includes(b) - myAllergies.includes(a)) ||
       ((found[a].status === 'contains' ? 0 : 1) - (found[b].status === 'contains' ? 0 : 1)));
-    const rows = ids.map(id => rowHtml(id, found[id].status, found[id].status === 'contains' ? 'Contains' : 'May contain', found[id].words)).join('');
+    const rows = ids.map(id => rowHtml(id, found[id].status, found[id].status === 'contains' ? 'Contains' : 'May contain', found[id].words, why[id])).join('');
 
     container.innerHTML = groupVerdict(found, 'label') +
       (extra.product ? `<p class="product">${escapeHtml(extra.product)}</p>` : '') +
