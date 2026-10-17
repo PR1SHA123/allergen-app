@@ -24,6 +24,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <!-- Our own files -->
   <script src="allergens.js"></script>
+  <script src="diets.js"></script>
   <script src="checker.js"></script>
   <script src="barcode.js"></script>
   <script src="dishes.js"></script>
@@ -313,6 +314,21 @@
     .ai-badge { display: inline-block; background: #F3E8FF; color: #6B2FB8; border-radius: 99px; padding: 3px 10px; font-size: 0.8rem; font-weight: 900; margin: 12px 16px 0; }
     .photo-btn { margin-top: 12px; }
     .member .x { background: none; border: 0; cursor: pointer; }
+    .sev-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+      background: var(--surface); border: 2px solid var(--line); border-radius: 16px; padding: 8px 10px; margin-bottom: 8px; }
+    .sev-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 900; }
+    .seg { display: inline-flex; background: var(--soft); border: 2px solid var(--line); border-radius: 12px; padding: 2px; }
+    .seg-btn { border: 0; background: none; border-radius: 9px; padding: 6px 9px; font-weight: 800; font-size: 0.8rem; color: var(--muted); }
+    .seg-btn[aria-pressed="true"] { background: var(--primary); color: #fff; }
+    .seg-btn[data-level="severe"][aria-pressed="true"], .seg-btn[data-level="airborne"][aria-pressed="true"] { background: var(--danger); }
+    .seg-btn[data-level="mild"][aria-pressed="true"] { background: #E2A21A; }
+    .air-note { background: #FFE3D3; color: #8A3300; border-radius: 16px; padding: 12px 14px; margin: 12px 16px 0; font-weight: 800; font-size: 0.92rem; }
+    .verdict.diet { background: #E1F4DA; color: #2F6B1F; }
+    .rows.who li.diet, .rows li.mine.diet { background: #EEF8E9; }
+    .rows li.mine.contains.diet .pill, .rows li.mine.may.diet .pill { background: #fff; border-color: #B7DFA6; color: #2F6B1F; }
+    .rows.who li.diet .pill { background: #fff; border-color: #B7DFA6; color: #2F6B1F; }
+    .cook-note { font-size: 1.05rem; color: #8A3300; margin: 10px 0 0; }
+    .cook-diet { font-size: 1.05rem; margin: 12px 0; }
     .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
     .sheet-actions .btn { width: 100%; }
     .btn.danger-text { background: var(--surface); color: var(--danger); border: 2px solid var(--line); box-shadow: 0 4px 0 var(--line); }
@@ -511,10 +527,23 @@
   function allergenById(id) {
     const built = ALLERGENS.find(a => a.id === id);
     if (built) return built;
+    const diet = DIETS.find(d => d.id === id);
+    if (diet) return dietAsAllergen(diet);
     const c = allCustoms().find(x => x.id === id);
     return c ? customAsAllergen(c) : { id: id, name: id.replace(/^c_/, ''), emoji: '⭐' };
   }
-  const colorOf = id => COLORS[id] || '#E6DAF7';   // custom allergies are lavender
+  const colorOf = id => COLORS[id] || (id.startsWith('d_') ? '#CFEFC4' : '#E6DAF7');   // diets green, custom lavender
+  const isDietId = id => id.startsWith('d_');
+  const LEVEL_WORD = { mild: 'mild', severe: 'severe', airborne: 'airborne' };
+  // "Peanut (severe), Milk · Vegetarian"
+  function describePerson(m) {
+    const allergies = m.allergies.map(id => allergenById(id).name + (LEVEL_WORD[levelOf(m, id)] ? ' (' + LEVEL_WORD[levelOf(m, id)] + ')' : ''));
+    const diets = (m.diets || []).map(id => allergenById(id).name);
+    return [allergies.join(', '), diets.join(', ')].filter(Boolean).join(' · ') || 'No allergies';
+  }
+  // Extra things to look for on labels: this group's custom allergies and diets
+  const groupExtras = () => groupCustoms(group()).map(customAsAllergen)
+    .concat(DIETS.filter(d => myAllergies.includes(d.id)).map(dietAsAllergen));
   const namesOf = ids => ids.map(id => allergenById(id).name.toLowerCase()).join(', ');
 
   // Each allergen gets its own color (like genre tiles)
@@ -626,7 +655,7 @@
           <button class="member" data-action="edit-person" data-id="${m.id}">
             ${avatar(m)}
             <span><span class="who-name">${escapeHtml(m.name)}</span><br>
-              <span class="allergy-list">${m.allergies.length ? m.allergies.map(id => allergenById(id).name).join(', ') : 'No allergies'}</span></span>
+              <span class="allergy-list">${escapeHtml(describePerson(m))}</span></span>
             <span class="edit">Edit</span>
           </button>`).join('') || `<p>No one here yet.</p>`}
         <button class="btn ghost big" data-action="add-person">+ Add ${g.type === 'class' ? 'a kid' : 'a person'}</button>
@@ -642,6 +671,10 @@
       // Drafts keep what's been typed/tapped while adding custom allergies
       if (!pv.customDraft) pv.customDraft = JSON.parse(JSON.stringify(m.custom || []));
       const picked = pv.tileDraft || m.allergies;
+      if (!pv.levelDraft) pv.levelDraft = Object.assign({}, m.levels || {});
+      if (!pv.dietDraft) pv.dietDraft = (m.diets || []).slice();
+      // Everything this person is allergic to (tiles + custom), for the "How serious?" list
+      const sevIds = picked.filter(id => !id.startsWith('c_')).concat(pv.customDraft.map(c => c.id));
       const nameVal = pv.nameDraft !== null && pv.nameDraft !== undefined ? pv.nameDraft : (m.name === 'Me' ? '' : m.name);
       const placeholder = g.type === 'class' ? 'First name or nickname' : (g.members.length ? 'Name, like Mom or Arjun' : 'Your name');
       html = `<button class="back" data-action="back-from-person">‹ ${escapeHtml(g.name)}</button>
@@ -670,7 +703,22 @@
           </div>
           ${pv.aiNote ? `<p class="ai-note">${pv.aiNote}</p>` : ''}
         </div>
-        <button class="btn big" data-action="save-person">Save</button>
+        ${sevIds.length ? `
+        <h3 class="row-title" style="margin-top:24px">How serious?</h3>
+        <p class="hint" style="margin:0 0 10px"><b>Mild:</b> intolerance, small amounts are OK. <b>Severe:</b> even a trace is dangerous. <b>Airborne:</b> reacts to it nearby, like the smell or steam.</p>
+        ${sevIds.map(id => `
+          <div class="sev-row">
+            <span class="sev-name"><span class="dot" style="background:${colorOf(id)}"></span>${escapeHtml(allergenById(id).name)}</span>
+            <span class="seg" role="group" aria-label="How serious is ${escapeHtml(allergenById(id).name)}">
+              ${SEVERITY.map(lv => `<button class="seg-btn" data-action="set-level" data-id="${id}" data-level="${lv.id}" aria-pressed="${(pv.levelDraft[id] || 'normal') === lv.id}">${lv.label}</button>`).join('')}
+            </span>
+          </div>`).join('')}` : ''}
+        <h3 class="row-title" style="margin-top:24px">Diet</h3>
+        <p class="hint" style="margin:0 0 10px">Not allergies, but foods to avoid. These show up as "doesn't fit your diet."</p>
+        <div class="chips">
+          ${DIETS.map(d => `<button class="chip" data-action="toggle-diet" data-id="${d.id}" aria-pressed="${pv.dietDraft.includes(d.id)}">${d.name}</button>`).join('')}
+        </div>
+        <button class="btn big" style="margin-top:20px" data-action="save-person">Save</button>
         ${pv.personId && g.members.length > 1 ? '<button class="btn danger-text big" style="margin-top:10px" data-action="delete-person">Remove</button>' : ''}`;
     }
 
@@ -705,7 +753,7 @@
         <h2>Add ${escapeHtml(j.name)} to this phone?</h2>
         <p>${j.type === 'class' ? 'Class or party' : 'Family'} with ${j.members.length} ${j.members.length === 1 ? 'person' : 'people'}.</p>
         ${j.members.slice(0, 12).map(m => `<div class="member">${avatar(m)}<span><span class="who-name">${escapeHtml(m.name)}</span><br>
-          <span class="allergy-list">${m.allergies.map(id => allergenById(id).name).join(', ') || 'No allergies'}</span></span></div>`).join('')}
+          <span class="allergy-list">${escapeHtml(describePerson(m))}</span></span></div>`).join('')}
         ${j.members.length > 12 ? `<p>+ ${j.members.length - 12} more</p>` : ''}
         <button class="btn big" data-action="accept-join">Add and use this group</button>
         <button class="btn ghost big" style="margin-top:10px" data-action="${people.groups.length ? 'to-groups' : 'to-start'}">Cancel</button>`;
@@ -720,7 +768,17 @@
   // Tapping allergy tiles on the person screen
   $('peopleBody').addEventListener('click', e => {
     const tile = e.target.closest('.tile');
-    if (tile) { tile.setAttribute('aria-pressed', tile.getAttribute('aria-pressed') !== 'true'); return; }
+    if (tile) {
+      tile.setAttribute('aria-pressed', tile.getAttribute('aria-pressed') !== 'true');
+      // Remember everything, redraw (so "How serious?" updates), and keep the scroll position
+      const body = $('peopleBody'), y = body.scrollTop;
+      pv.nameDraft = $('personName').value;
+      pv.tileDraft = [...document.querySelectorAll('#allergyGrid .tile[aria-pressed="true"]')].map(t => t.dataset.id);
+      if ($('customName')) { pv.customNameDraft = $('customName').value; pv.customWordsDraft = $('customWords').value; }
+      renderPeople();
+      body.scrollTop = y;
+      return;
+    }
 
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
@@ -737,8 +795,21 @@
       if ($('customName')) { pv.customNameDraft = $('customName').value; pv.customWordsDraft = $('customWords').value; }
     }
     // Starting a new person screen? Clear the drafts.
-    if (['start', 'new-group', 'add-person', 'edit-person'].includes(a)) { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.aiNote = ''; pv.aiResult = null; pv.customNameDraft = ''; pv.customWordsDraft = ''; }
+    if (['start', 'new-group', 'add-person', 'edit-person'].includes(a)) { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.aiNote = ''; pv.aiResult = null; pv.customNameDraft = ''; pv.customWordsDraft = ''; pv.levelDraft = null; pv.dietDraft = null; }
 
+    if (a === 'set-level' || a === 'toggle-diet') {
+      const body = $('peopleBody'), y = body.scrollTop;
+      if (a === 'set-level') {
+        if (btn.dataset.level === 'normal') delete pv.levelDraft[btn.dataset.id];
+        else pv.levelDraft[btn.dataset.id] = btn.dataset.level;
+      } else {
+        const id = btn.dataset.id;
+        pv.dietDraft = pv.dietDraft.includes(id) ? pv.dietDraft.filter(x => x !== id) : pv.dietDraft.concat(id);
+      }
+      renderPeople();
+      body.scrollTop = y;
+      return;
+    }
     if (a === 'ai-custom') {
       const name = $('customName').value.trim();
       if (!name) { $('customName').focus(); return; }
@@ -806,7 +877,7 @@
     else if (a === 'use-group') { people.activeId = g.id; return closePeople(); }
     else if (a === 'add-person') { pv.personId = null; pv.view = 'person'; }
     else if (a === 'edit-person') { pv.personId = btn.dataset.id; pv.view = 'person'; }
-    else if (a === 'back-from-person') { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.view = g && g.members.length ? 'group' : 'groups'; }
+    else if (a === 'back-from-person') { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.levelDraft = null; pv.dietDraft = null; pv.view = g && g.members.length ? 'group' : 'groups'; }
     else if (a === 'back-to-group') pv.view = 'group';
     else if (a === 'save-person') {
       // Typed a custom allergy but forgot to tap "Add"? Add it anyway.
@@ -820,9 +891,13 @@
       let name = $('personName').value.trim();
       if (!name) name = g.name === 'Just me' && !g.members.length ? 'Me' : 'Person ' + (g.members.length + 1);
       const existing = g.members.find(x => x.id === pv.personId);
-      if (existing) { existing.name = name; existing.allergies = allergies; existing.custom = custom; }
-      else g.members.push({ id: newId(), name: name, allergies: allergies, custom: custom });
-      pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null;
+      // Only keep severity for allergies they still have
+      const levels = {};
+      for (const id of allergies) if (pv.levelDraft && pv.levelDraft[id]) levels[id] = pv.levelDraft[id];
+      const diets = (pv.dietDraft || []).slice();
+      if (existing) Object.assign(existing, { name: name, allergies: allergies, custom: custom, levels: levels, diets: diets });
+      else g.members.push({ id: newId(), name: name, allergies: allergies, custom: custom, levels: levels, diets: diets });
+      pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.levelDraft = null; pv.dietDraft = null;
       sync();
       // "Just me" is done after one person; families and classes go back to the list
       if (g.name === 'Just me' && g.members.length === 1) { people.activeId = g.id; return closePeople(); }
@@ -921,77 +996,111 @@
     // Who in the group has this allergy?
     let tag = '';
     if (isMine) {
-      const who = members().filter(p => p.allergies.includes(id));
+      const who = members().filter(p => p.allergies.includes(id) || (p.diets || []).includes(id));
       tag = isSolo() ? 'yours' : who.slice(0, 2).map(p => escapeHtml(p.name)).join(', ') + (who.length > 2 ? ' +' + (who.length - 2) : '');
     }
-    return `<li class="${isMine ? 'mine ' : ''}${kind}">
+    return `<li class="${isMine ? 'mine ' : ''}${kind}${isDietId(id) ? ' diet' : ''}">
       <span class="dot" style="background:${colorOf(id)}"></span>
       <span class="name">${a.name}${tag ? `<span class="yours">${tag}</span>` : ''}</span>
-      <span class="pill">${pillText}</span>
+      <span class="pill">${isDietId(id) ? (kind === 'contains' ? 'Not ' + dietNames([id]) : 'Check') : pillText}</span>
       ${words ? `<span class="words">Found: ${words.map(escapeHtml).join(', ')}</span>` : ''}
     </li>`;
   }
 
   // The big colored answer at the top. kind = "label" (packaged food) or "dish" (no label)
+  const lower = ids => ids.map(id => allergenById(id).name.toLowerCase());
+  const dietNames = ids => joinAnd(ids.map(id => {
+    const n = allergenById(id).name;
+    return n.startsWith('No ') ? n.slice(3) + '-free' : n.toLowerCase();
+  }));
+
+  // One short reason for one person, like "has peanut (severe)" or "has chicken, so it's not vegetarian"
+  function reasonFor(p, s, found, isDish) {
+    const parts = [];
+    if (s.danger.length) parts.push((isDish ? 'usually or sometimes has ' : 'has ') + joinAnd(s.danger.map(id =>
+      allergenById(id).name.toLowerCase() + (found[id].status === 'may' ? (isDish ? '' : ' traces') : '') +
+      (levelOf(p, id) !== 'normal' ? ' (' + levelOf(p, id) + ')' : ''))));
+    const mildHas = s.warn.filter(id => found[id].status === 'contains');
+    const maybe = s.warn.filter(id => found[id].status !== 'contains');
+    if (mildHas.length) parts.push((isDish ? 'usually has ' : 'has ') + joinAnd(lower(mildHas).map(n => n + ' (mild)')));
+    if (maybe.length) parts.push((isDish ? 'might have ' : 'may contain ') + joinAnd(lower(maybe)));
+    if (s.diet.length) parts.push('isn\'t ' + dietNames(s.diet));
+    return parts.join('; ');
+  }
+
+  // A warning when someone with an AIRBORNE allergy is near this food, even if they won't eat it
+  function airborneHtml(found) {
+    const hits = [];
+    for (const p of members()) for (const id of p.allergies) {
+      if (levelOf(p, id) === 'airborne' && found[id]) hits.push({ p: p, id: id });
+    }
+    if (!hits.length) return '';
+    const text = hits.map(h => `${escapeHtml(cap(displayName(h.p)))} can react to ${escapeHtml(allergenById(h.id).name.toLowerCase())} in the air`).join('. ');
+    return `<p class="air-note">💨 ${text}. Keep this food away from ${isSolo() ? 'you' : 'them'}, even if ${isSolo() ? 'you\'re' : 'they\'re'} not the one eating it.</p>`;
+  }
+
   function groupVerdict(found, kind, dishName) {
     const ms = members();
     if (!myAllergies.length) {
       return verdictHtml('', 'wave', dishName || 'Almost there', 'Set up who you\'re checking for',
-        'Tap the button at the top and add allergies, so I know what to look for.');
+        'Tap the button at the top and add allergies or diets, so I know what to look for.');
     }
+    const isDish = kind === 'dish';
     const st = ms.map(p => ({ p: p, s: personStatus(p, found) }));
     const danger = st.filter(x => x.s.level === 'danger');
     const warn = st.filter(x => x.s.level === 'warn');
-    const allC = myAllergies.filter(id => found[id] && found[id].status === 'contains');
-    const allM = myAllergies.filter(id => found[id] && found[id].status === 'may');
-    const isDish = kind === 'dish';
-    const kicker = dishName || (danger.length ? 'Stop' : warn.length ? 'Careful' : 'Looks good');
+    const diet = st.filter(x => x.s.level === 'diet');
+    const kicker = dishName || (danger.length ? 'Stop' : warn.length ? 'Careful' : diet.length ? 'Heads up' : 'Looks good');
+    const air = airborneHtml(found);
 
     // Just one person: talk to them directly
     if (isSolo()) {
-      const who = displayName(ms[0]);
-      if (danger.length) return verdictHtml('danger', 'stop', kicker, isDish ? 'Usually has your allergen' : 'Not safe for ' + who,
-        (isDish ? 'Usually made with ' : 'Contains ') + namesOf(allC) + '.' + (allM.length ? (isDish ? ' Some versions have ' : ' May also contain ') + namesOf(allM) + '.' : '') + (isDish ? ' Ask before eating.' : ''));
-      if (warn.length) return verdictHtml('warn', 'unsure', kicker, isDish ? 'Sometimes has your allergen' : 'Might not be safe',
-        (isDish ? 'Some versions include ' : 'May contain ') + namesOf(allM) + '.' + (isDish ? ' Ask before eating.' : ''));
+      const p = ms[0], s = st[0].s, who = displayName(p);
+      const why = cap(reasonFor(p, s, found, isDish)) + '.';
+      if (s.level === 'danger') return verdictHtml('danger', 'stop', kicker, isDish ? 'Usually has your allergen' : 'Not safe for ' + who, why + (isDish ? ' Ask before eating.' : '')) + air;
+      if (s.level === 'warn') return verdictHtml('warn', 'unsure', kicker, isDish ? 'Might have your allergen' : 'Might not be safe', why + (isDish ? ' Ask before eating.' : ''));
+      if (s.level === 'diet') return verdictHtml('diet', 'unsure', kicker, isDish ? 'Usually doesn\'t fit your diet' : 'Doesn\'t fit your diet', why);
       return verdictHtml('safe', 'happy', kicker, isDish ? 'Not usually in this dish' : 'None of your allergens',
         isDish ? 'Recipes vary, so still ask the cook.' : 'Still give the package a quick check.');
     }
 
     // A family or class: say who it's not safe for
     const n = list => list.length === 1 ? cap(displayName(list[0].p)) : list.length + ' people';
-    if (danger.length) return verdictHtml('danger', 'stop', kicker,
-      (isDish ? 'Avoid for ' : 'Not safe for ') + n(danger),
-      cap(listNames(danger.map(x => x.p))) + (isDish ? ' usually can\'t have this.' : ' can\'t have this.') +
-      (warn.length ? ' Ask first for ' + listNames(warn.map(x => x.p)) + '.' : ''));
+    const also = (warn.length ? ' Ask first for ' + listNames(warn.map(x => x.p)) + '.' : '') +
+                 (diet.length ? ' Doesn\'t fit ' + listNames(diet.map(x => x.p)) + '\'s diet.' : '');
+    if (danger.length) return verdictHtml('danger', 'stop', kicker, (isDish ? 'Avoid for ' : 'Not safe for ') + n(danger),
+      cap(listNames(danger.map(x => x.p))) + (isDish ? ' usually can\'t have this.' : ' can\'t have this.') + also) + air;
     if (warn.length) return verdictHtml('warn', 'unsure', kicker, 'Careful for ' + n(warn),
-      (isDish ? 'Some versions include ' : 'May contain ') + namesOf(allM) + '. Ask first for ' + listNames(warn.map(x => x.p)) + '.');
+      'Ask first for ' + listNames(warn.map(x => x.p)) + '.' + (diet.length ? ' Doesn\'t fit ' + listNames(diet.map(x => x.p)) + '\'s diet.' : '')) + air;
+    if (diet.length) return verdictHtml('diet', 'unsure', kicker, 'Doesn\'t fit ' + (diet.length === 1 ? cap(displayName(diet[0].p)) + '\'s' : diet.length + ' people\'s') + ' diet',
+      'No allergy problems, but ' + listNames(diet.map(x => x.p)) + (diet.length === 1 ? ' doesn\'t' : ' don\'t') + ' eat this.') + air;
     return verdictHtml('safe', 'happy', kicker, isDish ? 'Not usually a problem' : 'OK for everyone',
       isDish ? 'None of your group\'s allergens are in the usual recipe. Recipes vary, so still ask.'
-             : 'None of your group\'s allergens found. Still give the package a quick check.');
+             : 'None of your group\'s allergens found. Still give the package a quick check.') + air;
   }
 
   // "Who can eat it" list for families and classes
   function whoHtml(found, kind) {
     if (isSolo() || !myAllergies.length) return '';
-    const order = { danger: 0, warn: 1, safe: 2 };
+    const isDish = kind === 'dish';
+    const order = { danger: 0, warn: 1, diet: 2, safe: 3 };
     const st = members().map(p => ({ p: p, s: personStatus(p, found) })).sort((a, b) => order[a.s.level] - order[b.s.level]);
-    const pills = kind === 'dish'
-      ? { danger: 'Avoid', warn: 'Ask first', safe: 'Probably OK' }
-      : { danger: 'Not safe', warn: 'Careful', safe: 'OK' };
+    const pills = isDish
+      ? { danger: 'Avoid', warn: 'Ask first', diet: 'Not their diet', safe: 'Probably OK' }
+      : { danger: 'Not safe', warn: 'Careful', diet: 'Not their diet', safe: 'OK' };
     let shownSafe = 0, hidden = 0;
     const rows = st.map(x => {
       if (x.s.level === 'safe' && st.length > 8 && ++shownSafe > 3) { hidden++; return ''; }
-      const why = [...x.s.contains, ...x.s.may].map(id => allergenById(id).name.toLowerCase()).join(', ');
+      const why = x.s.level === 'safe' ? '' : reasonFor(x.p, x.s, found, isDish);
       return `<li class="${x.s.level}">${avatar(x.p)}<span class="name">${escapeHtml(x.p.name)}</span>
-        <span class="pill">${pills[x.s.level]}</span>${why ? `<span class="words">${why}</span>` : ''}</li>`;
+        <span class="pill">${pills[x.s.level]}</span>${why ? `<span class="words">${escapeHtml(why)}</span>` : ''}</li>`;
     }).join('');
     return `<h4 class="who-title">Who can eat it</h4><ul class="rows who">${rows}</ul>` +
       (hidden ? `<p class="note">+ ${hidden} more ${pills.safe}</p>` : '');
   }
 
   function renderLabelResult(container, text, extra = {}) {
-    const found = checkLabel(text, groupCustoms(group()).map(customAsAllergen));
+    const found = checkLabel(text, groupExtras());
     const ids = Object.keys(found).sort((a, b) =>
       (myAllergies.includes(b) - myAllergies.includes(a)) ||
       ((found[a].status === 'contains' ? 0 : 1) - (found[b].status === 'contains' ? 0 : 1)));
@@ -1000,7 +1109,7 @@
     container.innerHTML = groupVerdict(found, 'label') +
       (extra.product ? `<p class="product">${escapeHtml(extra.product)}</p>` : '') +
       whoHtml(found, 'label') +
-      (rows ? `${isSolo() ? '' : '<h4 class="who-title">Allergens found</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens found in the ingredients.</p>') +
+      (rows ? `${isSolo() ? '' : '<h4 class="who-title">What I found</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens found in the ingredients.</p>') +
       `<p class="note">I can miss things. Always check the package and ask if you're unsure.</p>
        <details><summary>What I read</summary><pre>${escapeHtml(text)}</pre></details>`;
   }
@@ -1172,6 +1281,7 @@
     $('dishResult').innerHTML = groupVerdict(found, 'dish', name) + aiTop +
       whoHtml(found, 'dish') +
       (rows ? `${isSolo() ? '' : '<h4 class="who-title">Usually in it</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens in the usual recipe.</p>') +
+      (myAllergies.some(isDietId) ? '<p class="note">Diets aren\'t checked for dishes yet. Ask the cook what\'s in it.</p>' : '') +
       (myAllergies.some(id => id.startsWith('c_')) ? `<p class="note">The dish guide only knows the main allergens. Ask the cook about ${escapeHtml(joinAnd(myAllergies.filter(id => id.startsWith('c_')).map(id => allergenById(id).name.toLowerCase())))}.</p>` : '') +
       '<p class="note">Based on common recipes, not a guarantee. Every cook is different.</p>' +
       (myAllergies.length ? '<div style="padding:16px 16px 0"><button class="btn big" id="toAsk">Ask the cook</button></div>' : '');
@@ -1246,18 +1356,29 @@
   let cookLang = load('cookLang', 'en');
   let cookFor = 'all';   // "all" or one person's id
 
-  function cookAllergies() {
+  function cookPeople() {
     const p = members().find(m => m.id === cookFor);
-    return p ? p.allergies : myAllergies;
+    return p ? [p] : members();
+  }
+  function cookAllergies() {
+    const ids = new Set();
+    cookPeople().forEach(p => p.allergies.forEach(id => ids.add(id)));
+    return myAllergies.filter(id => ids.has(id));   // keep the usual order
   }
   function cookHtml() {
     const ids = cookAllergies();
-    if (!ids.length) return null;
+    const ps = cookPeople();
+    const diets = [...new Set(ps.flatMap(p => p.diets || []))];
+    if (!ids.length && !diets.length) return null;
+    const lv = ps.flatMap(p => p.allergies.map(id => levelOf(p, id)));
     const c = cookCardText(cookLang, ids, (id, lang) => {
       const ca = allCustoms().find(x => x.id === id);
       return ca ? ((ca.names && ca.names[lang]) || ca.name) : id;
-    });
-    return `${c.before}<div class="list">${c.list}</div>${c.after}`;
+    }, { severe: lv.includes('severe') || lv.includes('airborne'), airborne: lv.includes('airborne'), diets: diets });
+    return (c.before ? `${c.before}<div class="list">${c.list}</div>` : '') +
+      c.notes.map(n => `<p class="cook-note">⚠️ ${n}</p>`).join('') +
+      (c.diets.length ? `<p class="cook-diet">${c.dietIntro} <b>${c.diets.join('; ')}</b></p>` : '') +
+      (ids.length ? c.after : '');
   }
   function renderCook() {
     $('cookLangs').innerHTML = COOK_LANGUAGES.map(l =>
@@ -1265,7 +1386,7 @@
     if (cookFor !== 'all' && !members().some(m => m.id === cookFor)) cookFor = 'all';
     $('cookForRow').hidden = isSolo();
     $('cookFor').innerHTML = `<button class="chip" data-for="all" aria-pressed="${cookFor === 'all'}">Everyone</button>` +
-      members().filter(m => m.allergies.length).map(m =>
+      members().filter(m => m.allergies.length || (m.diets || []).length).map(m =>
         `<button class="chip" data-for="${m.id}" aria-pressed="${cookFor === m.id}">${escapeHtml(m.name)}</button>`).join('');
     const html = cookHtml();
     $('cookCard').innerHTML = html || '<span style="font-size:1rem; color:#6C7290">Add allergies at the top and your card will appear here.</span>';

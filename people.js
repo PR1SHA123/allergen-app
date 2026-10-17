@@ -44,24 +44,57 @@ function activeGroup(state) {
   return state.groups.find(g => g.id === state.activeId) || state.groups[0] || null;
 }
 
-// Every allergen anyone in the group has (no repeats)
+// Every allergen AND diet anyone in the group has (no repeats)
 function groupAllergies(group) {
   if (!group) return [];
   const all = new Set();
-  group.members.forEach(m => m.allergies.forEach(a => all.add(a)));
+  group.members.forEach(m => {
+    m.allergies.forEach(a => all.add(a));
+    (m.diets || []).forEach(d => all.add(d));
+  });
   const standard = ALLERGENS.map(a => a.id).filter(id => all.has(id)); // keep the standard order
   const custom = groupCustoms(group).map(c => c.id).filter(id => all.has(id));
-  return standard.concat(custom);
+  const diets = DIETS.map(d => d.id).filter(id => all.has(id));
+  return standard.concat(custom, diets);
+}
+
+// ---------- How serious is each allergy? ----------
+//   mild     -> intolerance: "contains" = careful, "may contain" is ignored
+//   normal   -> allergy (default): "contains" = not safe, "may contain" = careful
+//   severe   -> even traces: "contains" OR "may contain" = not safe
+//   airborne -> like severe, AND they can react to it nearby (smell, steam, touch)
+const SEVERITY = [
+  { id: "mild",     label: "Mild" },
+  { id: "normal",   label: "Allergy" },
+  { id: "severe",   label: "Severe" },
+  { id: "airborne", label: "Airborne" }
+];
+function levelOf(person, id) {
+  return (person.levels && person.levels[id]) || "normal";
 }
 
 // ---------- Checking one person ----------
-// found = { allergenId: { status: "contains" | "may" } }
-// Returns "danger", "warn", or "safe", plus which allergens caused it.
+// found = { allergenOrDietId: { status: "contains" | "may" } }
+// Returns the worst level for this person:
+//   "danger" (not safe), "warn" (careful), "diet" (doesn't fit their diet), or "safe"
+// plus the lists that explain why.
 function personStatus(person, found) {
-  const contains = person.allergies.filter(id => found[id] && found[id].status === "contains");
-  const may = person.allergies.filter(id => found[id] && found[id].status === "may");
-  const level = contains.length ? "danger" : may.length ? "warn" : "safe";
-  return { level: level, contains: contains, may: may };
+  const danger = [], warn = [], diet = [], airborne = [];
+  for (const id of person.allergies) {
+    const f = found[id];
+    if (!f) continue;
+    const lvl = levelOf(person, id);
+    if (lvl === "airborne") airborne.push(id);
+    if (lvl === "severe" || lvl === "airborne") danger.push(id);
+    else if (lvl === "mild") { if (f.status === "contains") warn.push(id); }
+    else if (f.status === "contains") danger.push(id);
+    else warn.push(id);
+  }
+  for (const id of person.diets || []) {
+    if (found[id] && found[id].status === "contains") diet.push(id);
+  }
+  const level = danger.length ? "danger" : warn.length ? "warn" : diet.length ? "diet" : "safe";
+  return { level: level, danger: danger, warn: warn, diet: diet, airborne: airborne };
 }
 
 // A dish uses "usually" / "sometimes" instead of "contains" / "may"
@@ -91,9 +124,17 @@ function encodeGroup(group) {
     t: group.type === "class" ? "c" : "f",
     n: group.name,
     m: group.members.map(p => {
-      const row = [p.name, p.allergies.filter(id => ALLERGEN_CODES[id]).map(id => ALLERGEN_CODES[id]).join("")];
       const custom = (p.custom || []).filter(c => p.allergies.includes(c.id));
-      if (custom.length) row.push(custom.map(c => [c.name].concat(c.words.filter(w => w !== c.name.toLowerCase()))));
+      const levels = {};
+      for (const id of p.allergies) if (levelOf(p, id) !== "normal") levels[ALLERGEN_CODES[id] || id] = levelOf(p, id)[0]; // m / s / a
+      const row = [
+        p.name,
+        p.allergies.filter(id => ALLERGEN_CODES[id]).map(id => ALLERGEN_CODES[id]).join(""),
+        custom.length ? custom.map(c => [c.name].concat(c.words.filter(w => w !== c.name.toLowerCase()))) : 0,
+        Object.keys(levels).length ? levels : 0,
+        (p.diets || []).length ? p.diets.map(id => DIETS.find(d => d.id === id).short) : 0
+      ];
+      while (row.length > 2 && row[row.length - 1] === 0) row.pop();   // keep codes short
       return row;
     })
   };
@@ -111,15 +152,25 @@ function decodeGroup(code) {
       id: newId(),
       type: data.t === "c" ? "class" : "family",
       name: String(data.n || "Shared group").slice(0, 30),
-      members: data.m.slice(0, 60).map(([name, letters, customList]) => {
+      members: data.m.slice(0, 60).map(([name, letters, customList, levelMap, dietList]) => {
         const custom = (Array.isArray(customList) ? customList : []).slice(0, 20)
           .map(c => makeCustom(String(c[0] || "").slice(0, 30), c.slice(1).map(String).join(",")))
           .filter(c => c.name);
+        const allergies = [...new Set(String(letters || "").split("").map(l => byLetter[l]).filter(Boolean))].concat(custom.map(c => c.id));
+        const levels = {};
+        const fullLevel = { m: "mild", s: "severe", a: "airborne" };
+        if (levelMap && typeof levelMap === "object") {
+          for (const [key, v] of Object.entries(levelMap)) {
+            const id = byLetter[key] || key;
+            if (allergies.includes(id) && fullLevel[v]) levels[id] = fullLevel[v];
+          }
+        }
+        const diets = (Array.isArray(dietList) ? dietList : [])
+          .map(sh => DIETS.find(d => d.short === sh)).filter(Boolean).map(d => d.id);
         return {
           id: newId(),
           name: String(name || "Someone").slice(0, 20),
-          allergies: [...new Set(String(letters || "").split("").map(l => byLetter[l]).filter(Boolean))].concat(custom.map(c => c.id)),
-          custom: custom
+          allergies: allergies, custom: custom, levels: levels, diets: diets
         };
       })
     };
