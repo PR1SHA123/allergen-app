@@ -30,7 +30,6 @@
   <script src="askcook.js"></script>
   <script src="mascot.js"></script>
   <script src="people.js"></script>
-  <script src="ai.js"></script>
   <!-- qrcode-generator: draws QR codes for sharing a group -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 
@@ -307,11 +306,6 @@
     .member .allergy-list { color: var(--muted); font-size: 0.85rem; font-weight: 700; }
     .member .edit { white-space: nowrap; margin-left: auto; color: var(--primary); font-weight: 900; font-size: 0.85rem; }
     .custom-form { display: grid; gap: 8px; margin-top: 4px; }
-    .ai-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .btn.ai { background: #F3E8FF; color: #6B2FB8; box-shadow: 0 4px 0 #D9C2FA; }
-    .ai-note { background: #F3E8FF; color: #5A2A9A; border-radius: 14px; padding: 10px 12px; font-size: 0.86rem; font-weight: 700; margin: 0; }
-    .ai-badge { display: inline-block; background: #F3E8FF; color: #6B2FB8; border-radius: 99px; padding: 3px 10px; font-size: 0.8rem; font-weight: 900; margin: 12px 16px 0; }
-    .photo-btn { margin-top: 12px; }
     .member .x { background: none; border: 0; cursor: pointer; }
     .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
     .sheet-actions .btn { width: 100%; }
@@ -431,15 +425,8 @@
       <button class="btn" id="dishBtn">Check</button>
     </div>
     <datalist id="dishNames"></datalist>
-    <label class="btn big ai photo-btn" for="foodPhoto">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-      ✨ Snap the food
-    </label>
-    <input type="file" id="foodPhoto" accept="image/*" hidden>
-    <p class="hint" style="margin-top:8px">The photo goes to Google's AI to guess the dish. Only photograph the food, not people.</p>
     <p class="hint">Try one</p>
     <div class="chips" id="popularDishes"></div>
-    <p class="status" id="dishStatus"></p>
     <div class="result" id="dishResult"></div>
   </section>
 
@@ -662,13 +649,9 @@
             <button class="edit x" data-action="remove-custom" data-id="${c.id}" aria-label="Remove ${escapeHtml(c.name)}">Remove</button>
           </div>`).join('')}
         <div class="custom-form">
-          <input type="text" id="customName" maxlength="30" placeholder="Allergy, e.g. Kiwi" value="${escapeHtml(pv.customNameDraft || '')}">
-          <textarea id="customWords" rows="2" maxlength="600" placeholder="Other names on labels (optional), e.g. kiwifruit, 猕猴桃">${escapeHtml(pv.customWordsDraft || '')}</textarea>
-          <div class="ai-row">
-            <button class="btn ai" data-action="ai-custom">✨ Find names with AI</button>
-            <button class="btn ghost" data-action="add-custom">+ Add allergy</button>
-          </div>
-          ${pv.aiNote ? `<p class="ai-note">${pv.aiNote}</p>` : ''}
+          <input type="text" id="customName" maxlength="30" placeholder="Allergy, e.g. Kiwi">
+          <input type="text" id="customWords" maxlength="200" placeholder="Other names on labels (optional), e.g. kiwifruit, 猕猴桃">
+          <button class="btn ghost" data-action="add-custom">+ Add allergy</button>
         </div>
         <button class="btn big" data-action="save-person">Save</button>
         ${pv.personId && g.members.length > 1 ? '<button class="btn danger-text big" style="margin-top:10px" data-action="delete-person">Remove</button>' : ''}`;
@@ -734,40 +717,14 @@
     if (pv.view === 'person' && $('personName')) {
       pv.nameDraft = $('personName').value;
       pv.tileDraft = [...document.querySelectorAll('#allergyGrid .tile[aria-pressed="true"]')].map(t => t.dataset.id);
-      if ($('customName')) { pv.customNameDraft = $('customName').value; pv.customWordsDraft = $('customWords').value; }
     }
     // Starting a new person screen? Clear the drafts.
-    if (['start', 'new-group', 'add-person', 'edit-person'].includes(a)) { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.aiNote = ''; pv.aiResult = null; pv.customNameDraft = ''; pv.customWordsDraft = ''; }
+    if (['start', 'new-group', 'add-person', 'edit-person'].includes(a)) { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; }
 
-    if (a === 'ai-custom') {
-      const name = $('customName').value.trim();
-      if (!name) { $('customName').focus(); return; }
-      btn.disabled = true; btn.textContent = '✨ Thinking…';
-      aiAllergy(name).then(r => {
-        if (!r.valid) {
-          pv.aiNote = `The AI didn't recognize "${escapeHtml(name)}" as a food. You can still add it with your own names.`;
-          pv.aiResult = null;
-        } else {
-          pv.aiResult = { name: name, names: r.names };
-          pv.aiNote = '✨ AI suggestions. Check them, delete any that are wrong, then tap Add.' + (r.note ? ' ' + escapeHtml(r.note) : '');
-          pv.customWordsDraft = r.words.join(', ');
-        }
-      }).catch(err => {
-        pv.aiNote = escapeHtml(err.message) + ' You can still type the names yourself.';
-      }).finally(() => {
-        pv.customNameDraft = name;
-        renderPeople();
-        const box = $('customWords'); if (box) box.scrollIntoView({ block: 'center' });
-      });
-      return;
-    }
     if (a === 'add-custom') {
       const name = $('customName').value.trim();
       if (!name) { $('customName').focus(); return; }
       const c = makeCustom(name, $('customWords').value);
-      // Keep the AI's translations for the Ask-the-cook card
-      if (pv.aiResult && pv.aiResult.name.toLowerCase() === name.toLowerCase()) c.names = pv.aiResult.names;
-      pv.aiResult = null; pv.aiNote = ''; pv.customNameDraft = ''; pv.customWordsDraft = '';
       // Same name as a built-in allergen? Just tick that tile instead.
       const built = ALLERGENS.find(x => x.name.toLowerCase() === name.toLowerCase());
       if (built) { pv.tileDraft = [...new Set(pv.tileDraft.concat(built.id))]; }
@@ -1165,11 +1122,7 @@
       .sort((x, y) => myAllergies.includes(y[0]) - myAllergies.includes(x[0]))
       .map(([id, kind]) => rowHtml(id, kind, kind === 'contains' ? 'Usually' : 'Sometimes')).join('');
 
-    const aiTop = dish.ai
-      ? `<span class="ai-badge">✨ AI estimate${dish.confidence ? ' · ' + dish.confidence + ' confidence' : ''}. Double-check.</span>` +
-        (dish.note ? `<p class="note" style="padding-top:8px">${escapeHtml(dish.note)}</p>` : '')
-      : (dish.fromPhoto ? `<span class="ai-badge">✨ Recognized from your photo</span>` : '');
-    $('dishResult').innerHTML = groupVerdict(found, 'dish', name) + aiTop +
+    $('dishResult').innerHTML = groupVerdict(found, 'dish', name) +
       whoHtml(found, 'dish') +
       (rows ? `${isSolo() ? '' : '<h4 class="who-title">Usually in it</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens in the usual recipe.</p>') +
       (myAllergies.some(id => id.startsWith('c_')) ? `<p class="note">The dish guide only knows the main allergens. Ask the cook about ${escapeHtml(joinAnd(myAllergies.filter(id => id.startsWith('c_')).map(id => allergenById(id).name.toLowerCase())))}.</p>` : '') +
@@ -1179,63 +1132,13 @@
     if (toAsk) toAsk.addEventListener('click', () => showTab('ask'));
   }
 
-  // Turns an AI answer into the same shape as a dish from dishes.js
-  function aiToDish(r, fromPhoto) {
-    return { names: [r.dish || 'This dish'], usually: r.usually || [], sometimes: r.sometimes || [],
-             ai: true, note: r.note, confidence: fromPhoto ? r.confidence : null };
-  }
-
-  async function searchDish(typed) {
-    $('dishStatus').textContent = '';
-    // 1. Our own dish guide first (checked by hand, works offline)
+  function searchDish(typed) {
     const dish = findDish(typed);
     if (dish) { $('dishInput').value = dish.names[0]; showDish(dish); return; }
-
-    // 2. Not in the guide: ask the AI
     lastDish = null;
-    $('dishResult').innerHTML = '';
-    $('dishStatus').textContent = '✨ Not in my guide yet. Asking the AI…';
-    try {
-      const r = await aiDish(typed);
-      $('dishStatus').textContent = '';
-      if (!r.known) {
-        renderMessage($('dishResult'), 'unsure', 'Hmm', 'I don\'t know that dish',
-          `Neither my guide nor the AI recognized "${escapeHtml(typed)}". Use Ask to check with the cook.`);
-        return;
-      }
-      showDish(aiToDish(r, false));
-    } catch (err) {
-      $('dishStatus').textContent = '';
-      renderMessage($('dishResult'), 'unsure', 'Not in my guide', 'I don\'t know that dish yet',
-        `"${escapeHtml(typed)}" isn't in my dish guide, and the AI couldn't help: ${escapeHtml(err.message)} Use Ask to check with the cook.`);
-    }
+    renderMessage($('dishResult'), 'unsure', 'Not in my guide', 'I don\'t know that dish yet',
+      `"${escapeHtml(typed)}" isn't in my dish guide. Use Ask to check with the cook.`);
   }
-
-  $('foodPhoto').addEventListener('change', async () => {
-    const file = $('foodPhoto').files[0];
-    $('foodPhoto').value = '';
-    if (!file) return;
-    lastDish = null;
-    $('dishResult').innerHTML = '';
-    $('dishStatus').textContent = '✨ Looking at your photo…';
-    try {
-      const r = await aiPhoto(file);
-      $('dishStatus').textContent = '';
-      if (!r.isFood || !r.dish) {
-        renderMessage($('dishResult'), 'unsure', 'Hmm', 'I can\'t tell what that is',
-          'Try a closer photo of just the food, or type the dish name above.');
-        return;
-      }
-      // If the AI's guess is in our own guide, use our checked data
-      const known = findDish(r.dish);
-      $('dishInput').value = known ? known.names[0] : r.dish;
-      if (known) showDish(Object.assign({}, known, { fromPhoto: true }));
-      else showDish(aiToDish(r, true));
-      $('dishStatus').textContent = `Looks like ${r.dish}. Not right? Type the dish name above.`;
-    } catch (err) {
-      $('dishStatus').textContent = err.message;
-    }
-  });
   $('dishBtn').addEventListener('click', () => { const t = $('dishInput').value.trim(); if (t) searchDish(t); });
   $('dishInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('dishBtn').click(); });
   $('popularDishes').addEventListener('click', e => { const c = e.target.closest('[data-dish]'); if (c) searchDish(c.dataset.dish); });
