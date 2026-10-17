@@ -6,12 +6,12 @@
 // right away instead of being stuck on an old version.
 // ============================================================
 
-const CACHE = "allergen-app-v16";
+const CACHE = "allergen-app-v17";
 
 // The app's own files, saved when the app is installed
 const APP_FILES = [
   "./", "./index.html", "./allergens.js", "./diets.js", "./checker.js", "./barcode.js", "./scan.js",
-  "./dishes.js", "./askcook.js", "./mascot.js", "./people.js", "./ai.js", "./voice.js", "./manifest.json", "./icon-192.png", "./icon-512.png", "./lib/zxing-reader.js", "./lib/zxing_reader.wasm"
+  "./dishes.js", "./askcook.js", "./mascot.js", "./people.js", "./ai.js", "./voice.js", "./manifest.json", "./tofu-icon-192.png", "./tofu-icon-512.png", "./lib/zxing-reader.js", "./lib/zxing_reader.wasm"
 ];
 
 self.addEventListener("install", event => {
