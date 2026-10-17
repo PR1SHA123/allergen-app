@@ -304,7 +304,9 @@
     }
     .member .who-name { font-weight: 900; }
     .member .allergy-list { color: var(--muted); font-size: 0.85rem; font-weight: 700; }
-    .member .edit { margin-left: auto; color: var(--primary); font-weight: 900; font-size: 0.85rem; }
+    .member .edit { white-space: nowrap; margin-left: auto; color: var(--primary); font-weight: 900; font-size: 0.85rem; }
+    .custom-form { display: grid; gap: 8px; margin-top: 4px; }
+    .member .x { background: none; border: 0; cursor: pointer; }
     .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
     .sheet-actions .btn { width: 100%; }
     .btn.danger-text { background: var(--surface); color: var(--danger); border: 2px solid var(--line); box-shadow: 0 4px 0 var(--line); }
@@ -485,7 +487,21 @@
   function load(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }
   function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
   function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-  const allergenById = id => ALLERGENS.find(a => a.id === id);
+  // Built-in allergens, or a custom one (kiwi, mustard…) from any group on this phone
+  function allCustoms() {
+    const seen = {};
+    const groups = (typeof people !== 'undefined' ? people.groups : []).concat(pv && pv.joining ? [pv.joining] : []);
+    groups.forEach(g => groupCustoms(g).forEach(c => { seen[c.id] = c; }));
+    if (pv && pv.customDraft) pv.customDraft.forEach(c => { seen[c.id] = c; });
+    return Object.values(seen);
+  }
+  function allergenById(id) {
+    const built = ALLERGENS.find(a => a.id === id);
+    if (built) return built;
+    const c = allCustoms().find(x => x.id === id);
+    return c ? customAsAllergen(c) : { id: id, name: id.replace(/^c_/, ''), emoji: '⭐' };
+  }
+  const colorOf = id => COLORS[id] || '#E6DAF7';   // custom allergies are lavender
   const namesOf = ids => ids.map(id => allergenById(id).name.toLowerCase()).join(', ');
 
   // Each allergen gets its own color (like genre tiles)
@@ -521,12 +537,12 @@
     for (const ch of p.name) h = (h * 31 + ch.charCodeAt(0)) % 997;
     return `<span class="avatar" style="background:${AVATAR_COLORS[h % AVATAR_COLORS.length]}">${escapeHtml([...p.name][0] || '?').toUpperCase()}</span>`;
   }
-  const dots = ids => `<span class="mini-dots">${ids.map(id => `<span class="dot" style="background:${COLORS[id]}"></span>`).join('')}</span>`;
+  const dots = ids => `<span class="mini-dots">${ids.map(id => `<span class="dot" style="background:${colorOf(id)}"></span>`).join('')}</span>`;
 
   // Header button + "Checking for" on Home
   function renderMe() {
     const g = group();
-    $('meDots').innerHTML = myAllergies.slice(0, 4).map(id => `<span class="dot" style="background:${COLORS[id]}"></span>`).join('');
+    $('meDots').innerHTML = myAllergies.slice(0, 4).map(id => `<span class="dot" style="background:${colorOf(id)}"></span>`).join('');
     $('meText').textContent = g ? g.name : 'Set up';
     $('checkingTitle').textContent = g ? 'Checking for ' + g.name : 'Who are we checking for?';
     const shown = g ? g.members.slice(0, 10) : [];
@@ -609,15 +625,33 @@
     }
 
     else if (pv.view === 'person' && g) {
-      const m = g.members.find(x => x.id === pv.personId) || { name: '', allergies: [] };
+      const m = g.members.find(x => x.id === pv.personId) || { name: '', allergies: [], custom: [] };
+      // Drafts keep what's been typed/tapped while adding custom allergies
+      if (!pv.customDraft) pv.customDraft = JSON.parse(JSON.stringify(m.custom || []));
+      const picked = pv.tileDraft || m.allergies;
+      const nameVal = pv.nameDraft !== null && pv.nameDraft !== undefined ? pv.nameDraft : (m.name === 'Me' ? '' : m.name);
       const placeholder = g.type === 'class' ? 'First name or nickname' : (g.members.length ? 'Name, like Mom or Arjun' : 'Your name');
       html = `<button class="back" data-action="back-from-person">‹ ${escapeHtml(g.name)}</button>
         <h2>${pv.personId ? 'Edit ' + escapeHtml(m.name) : (g.type === 'class' ? 'Add a kid' : 'Add a person')}</h2>
         <label class="hint" for="personName" style="display:block;margin:0 0 6px">Name</label>
-        <input type="text" id="personName" maxlength="20" placeholder="${placeholder}" value="${escapeHtml(m.name === 'Me' ? '' : m.name)}">
+        <input type="text" id="personName" maxlength="20" placeholder="${placeholder}" value="${escapeHtml(nameVal)}">
         <h3 class="row-title" style="margin-top:18px">Allergies</h3>
         <div class="allergy-grid" id="allergyGrid">
-          ${ALLERGENS.map(a => `<button class="tile" data-id="${a.id}" style="--c:${COLORS[a.id]}" aria-pressed="${m.allergies.includes(a.id)}"><span class="blob"></span>${a.name}</button>`).join('')}
+          ${ALLERGENS.map(a => `<button class="tile" data-id="${a.id}" style="--c:${COLORS[a.id]}" aria-pressed="${picked.includes(a.id)}"><span class="blob"></span>${a.name}</button>`).join('')}
+        </div>
+        <h3 class="row-title" style="margin-top:22px">Something else?</h3>
+        <p class="hint" style="margin:0 0 10px">Add any allergy that isn't listed above, like kiwi, mustard, or coconut.</p>
+        ${pv.customDraft.map(c => `
+          <div class="member">
+            <span class="avatar" style="background:${colorOf(c.id)}">⭐</span>
+            <span><span class="who-name">${escapeHtml(c.name)}</span><br>
+              <span class="allergy-list">Looks for: ${c.words.map(escapeHtml).join(', ')}</span></span>
+            <button class="edit x" data-action="remove-custom" data-id="${c.id}" aria-label="Remove ${escapeHtml(c.name)}">Remove</button>
+          </div>`).join('')}
+        <div class="custom-form">
+          <input type="text" id="customName" maxlength="30" placeholder="Allergy, e.g. Kiwi">
+          <input type="text" id="customWords" maxlength="200" placeholder="Other names on labels (optional), e.g. kiwifruit, 猕猴桃">
+          <button class="btn ghost" data-action="add-custom">+ Add allergy</button>
         </div>
         <button class="btn big" data-action="save-person">Save</button>
         ${pv.personId && g.members.length > 1 ? '<button class="btn danger-text big" style="margin-top:10px" data-action="delete-person">Remove</button>' : ''}`;
@@ -679,6 +713,32 @@
     // Keep a renamed group's name
     if (g && $('groupName')) g.name = $('groupName').value.trim() || g.name;
 
+    // On the person screen, remember what's been typed and tapped so far
+    if (pv.view === 'person' && $('personName')) {
+      pv.nameDraft = $('personName').value;
+      pv.tileDraft = [...document.querySelectorAll('#allergyGrid .tile[aria-pressed="true"]')].map(t => t.dataset.id);
+    }
+    // Starting a new person screen? Clear the drafts.
+    if (['start', 'new-group', 'add-person', 'edit-person'].includes(a)) { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; }
+
+    if (a === 'add-custom') {
+      const name = $('customName').value.trim();
+      if (!name) { $('customName').focus(); return; }
+      const c = makeCustom(name, $('customWords').value);
+      // Same name as a built-in allergen? Just tick that tile instead.
+      const built = ALLERGENS.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (built) { pv.tileDraft = [...new Set(pv.tileDraft.concat(built.id))]; }
+      else if (!pv.customDraft.some(x => x.id === c.id)) pv.customDraft.push(c);
+      renderPeople();
+      const box = $('customName'); if (box) box.scrollIntoView({ block: 'center' });
+      return;
+    }
+    if (a === 'remove-custom') {
+      pv.customDraft = pv.customDraft.filter(x => x.id !== btn.dataset.id);
+      renderPeople();
+      return;
+    }
+
     if (a === 'start') {
       const kind = btn.dataset.kind;
       const ng = {
@@ -703,15 +763,23 @@
     else if (a === 'use-group') { people.activeId = g.id; return closePeople(); }
     else if (a === 'add-person') { pv.personId = null; pv.view = 'person'; }
     else if (a === 'edit-person') { pv.personId = btn.dataset.id; pv.view = 'person'; }
-    else if (a === 'back-from-person') pv.view = g && g.members.length ? 'group' : 'groups';
+    else if (a === 'back-from-person') { pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null; pv.view = g && g.members.length ? 'group' : 'groups'; }
     else if (a === 'back-to-group') pv.view = 'group';
     else if (a === 'save-person') {
-      const allergies = [...document.querySelectorAll('#allergyGrid .tile[aria-pressed="true"]')].map(t => t.dataset.id);
+      // Typed a custom allergy but forgot to tap "Add"? Add it anyway.
+      if ($('customName') && $('customName').value.trim()) {
+        const c = makeCustom($('customName').value, $('customWords').value);
+        if (!pv.customDraft.some(x => x.id === c.id)) pv.customDraft.push(c);
+      }
+      const custom = pv.customDraft || [];
+      const allergies = [...document.querySelectorAll('#allergyGrid .tile[aria-pressed="true"]')].map(t => t.dataset.id)
+        .concat(custom.map(c => c.id));
       let name = $('personName').value.trim();
       if (!name) name = g.name === 'Just me' && !g.members.length ? 'Me' : 'Person ' + (g.members.length + 1);
       const existing = g.members.find(x => x.id === pv.personId);
-      if (existing) { existing.name = name; existing.allergies = allergies; }
-      else g.members.push({ id: newId(), name: name, allergies: allergies });
+      if (existing) { existing.name = name; existing.allergies = allergies; existing.custom = custom; }
+      else g.members.push({ id: newId(), name: name, allergies: allergies, custom: custom });
+      pv.customDraft = null; pv.tileDraft = null; pv.nameDraft = null;
       sync();
       // "Just me" is done after one person; families and classes go back to the list
       if (g.name === 'Just me' && g.members.length === 1) { people.activeId = g.id; return closePeople(); }
@@ -814,7 +882,7 @@
       tag = isSolo() ? 'yours' : who.slice(0, 2).map(p => escapeHtml(p.name)).join(', ') + (who.length > 2 ? ' +' + (who.length - 2) : '');
     }
     return `<li class="${isMine ? 'mine ' : ''}${kind}">
-      <span class="dot" style="background:${COLORS[id]}"></span>
+      <span class="dot" style="background:${colorOf(id)}"></span>
       <span class="name">${a.name}${tag ? `<span class="yours">${tag}</span>` : ''}</span>
       <span class="pill">${pillText}</span>
       ${words ? `<span class="words">Found: ${words.map(escapeHtml).join(', ')}</span>` : ''}
@@ -880,7 +948,7 @@
   }
 
   function renderLabelResult(container, text, extra = {}) {
-    const found = checkLabel(text);
+    const found = checkLabel(text, groupCustoms(group()).map(customAsAllergen));
     const ids = Object.keys(found).sort((a, b) =>
       (myAllergies.includes(b) - myAllergies.includes(a)) ||
       ((found[a].status === 'contains' ? 0 : 1) - (found[b].status === 'contains' ? 0 : 1)));
@@ -1057,6 +1125,7 @@
     $('dishResult').innerHTML = groupVerdict(found, 'dish', name) +
       whoHtml(found, 'dish') +
       (rows ? `${isSolo() ? '' : '<h4 class="who-title">Usually in it</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens in the usual recipe.</p>') +
+      (myAllergies.some(id => id.startsWith('c_')) ? `<p class="note">The dish guide only knows the main allergens. Ask the cook about ${escapeHtml(joinAnd(myAllergies.filter(id => id.startsWith('c_')).map(id => allergenById(id).name.toLowerCase())))}.</p>` : '') +
       '<p class="note">Based on common recipes, not a guarantee. Every cook is different.</p>' +
       (myAllergies.length ? '<div style="padding:16px 16px 0"><button class="btn big" id="toAsk">Ask the cook</button></div>' : '');
     const toAsk = $('toAsk');
@@ -1087,7 +1156,10 @@
   function cookHtml() {
     const ids = cookAllergies();
     if (!ids.length) return null;
-    const c = cookCardText(cookLang, ids);
+    const c = cookCardText(cookLang, ids, (id, lang) => {
+      const ca = allCustoms().find(x => x.id === id);
+      return ca ? ((ca.names && ca.names[lang]) || ca.name) : id;
+    });
     return `${c.before}<div class="list">${c.list}</div>${c.after}`;
   }
   function renderCook() {

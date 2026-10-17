@@ -55,8 +55,9 @@ const COOK_LANGUAGES = [
 ];
 
 // Build the card text for a language and a list of allergen ids
-function cookCardText(langId, allergenIds) {
+// customName(id) gives the name of a custom allergy (used when there's no translation)
+function cookCardText(langId, allergenIds, customName) {
   const lang = COOK_LANGUAGES.find(l => l.id === langId) || COOK_LANGUAGES[0];
-  const list = allergenIds.map(id => lang.names[id]).join(lang.joiner);
+  const list = allergenIds.map(id => lang.names[id] || (customName ? customName(id, langId) : id)).join(lang.joiner);
   return { before: lang.before, list: list, after: lang.after };
 }

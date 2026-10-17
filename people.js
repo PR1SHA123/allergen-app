@@ -49,7 +49,9 @@ function groupAllergies(group) {
   if (!group) return [];
   const all = new Set();
   group.members.forEach(m => m.allergies.forEach(a => all.add(a)));
-  return ALLERGENS.map(a => a.id).filter(id => all.has(id)); // keep the standard order
+  const standard = ALLERGENS.map(a => a.id).filter(id => all.has(id)); // keep the standard order
+  const custom = groupCustoms(group).map(c => c.id).filter(id => all.has(id));
+  return standard.concat(custom);
 }
 
 // ---------- Checking one person ----------
@@ -88,7 +90,12 @@ function encodeGroup(group) {
     v: 1,
     t: group.type === "class" ? "c" : "f",
     n: group.name,
-    m: group.members.map(p => [p.name, p.allergies.map(id => ALLERGEN_CODES[id]).join("")])
+    m: group.members.map(p => {
+      const row = [p.name, p.allergies.filter(id => ALLERGEN_CODES[id]).map(id => ALLERGEN_CODES[id]).join("")];
+      const custom = (p.custom || []).filter(c => p.allergies.includes(c.id));
+      if (custom.length) row.push(custom.map(c => [c.name].concat(c.words.filter(w => w !== c.name.toLowerCase()))));
+      return row;
+    })
   };
   return toBase64Url(JSON.stringify(data));
 }
@@ -104,11 +111,17 @@ function decodeGroup(code) {
       id: newId(),
       type: data.t === "c" ? "class" : "family",
       name: String(data.n || "Shared group").slice(0, 30),
-      members: data.m.slice(0, 60).map(([name, letters]) => ({
-        id: newId(),
-        name: String(name || "Someone").slice(0, 20),
-        allergies: [...new Set(String(letters || "").split("").map(l => byLetter[l]).filter(Boolean))]
-      }))
+      members: data.m.slice(0, 60).map(([name, letters, customList]) => {
+        const custom = (Array.isArray(customList) ? customList : []).slice(0, 20)
+          .map(c => makeCustom(String(c[0] || "").slice(0, 30), c.slice(1).map(String).join(",")))
+          .filter(c => c.name);
+        return {
+          id: newId(),
+          name: String(name || "Someone").slice(0, 20),
+          allergies: [...new Set(String(letters || "").split("").map(l => byLetter[l]).filter(Boolean))].concat(custom.map(c => c.id)),
+          custom: custom
+        };
+      })
     };
   } catch (e) {
     return null;
@@ -119,4 +132,47 @@ function decodeGroup(code) {
 function codeFromText(text) {
   const m = String(text).match(/join=([A-Za-z0-9_-]+)/);
   return m ? m[1] : String(text).trim();
+}
+
+// ============================================================
+// CUSTOM ALLERGIES
+// For anything not in the main list (kiwi, mustard, coconut, red dye 40…).
+// Each person can have their own:
+//   { id: "c_kiwi", name: "Kiwi", words: ["kiwi", "kiwifruit", "猕猴桃"], names: {} }
+//   words = every name it might go by on a label (any language)
+//   names = translations for the Ask-the-cook card, e.g. { hi: "कीवी" } (filled in by AI later)
+// ============================================================
+
+function slugify(text) {
+  return String(text).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}-]/gu, "").slice(0, 30) || newId();
+}
+
+// Turns "Kiwi" + "kiwifruit, chinese gooseberry" into a custom allergy
+function makeCustom(name, wordsText) {
+  const words = [name].concat(String(wordsText || "").split(/[,，、\n]/))
+    .map(w => w.trim().toLowerCase())
+    .filter(w => w.length >= 2);
+  return { id: "c_" + slugify(name), name: name.trim(), words: [...new Set(words)], names: {} };
+}
+
+// Converts a custom allergy into the same shape as the built-in ALLERGENS,
+// so checkLabel() can use it exactly like milk or peanut.
+function customAsAllergen(c) {
+  const en = [], other = [];
+  for (const w of c.words) {
+    if (/^[\x00-\x7F]+$/.test(w)) {
+      en.push(w);
+      if (!w.endsWith("s")) en.push(w + "s", w + "es");   // kiwi -> kiwis, mango -> mangoes
+    } else {
+      other.push(w);
+    }
+  }
+  return { id: c.id, name: c.name, emoji: "⭐", words: { en: en, other: other }, exclude: [], custom: true };
+}
+
+// Every custom allergy anyone in the group has (no repeats)
+function groupCustoms(group) {
+  const seen = {};
+  if (group) group.members.forEach(m => (m.custom || []).forEach(c => { if (!seen[c.id]) seen[c.id] = c; }));
+  return Object.values(seen);
 }

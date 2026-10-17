@@ -31,7 +31,8 @@ function isMayContain(segment) {
 }
 
 // Main function: returns { allergenId: { status: "contains" | "may", words: [...] } }
-function checkLabel(rawText) {
+// extra = the user's own custom allergies (same shape as ALLERGENS), optional
+function checkLabel(rawText, extra) {
   // 1. Clean up: lowercase, and join the lines back together
   //    (a sentence often wraps across two lines on the label)
   let text = rawText.toLowerCase().replace(/\s+/g, " ");
@@ -48,7 +49,7 @@ function checkLabel(rawText) {
 
   const results = {};
 
-  for (const allergen of ALLERGENS) {
+  for (const allergen of ALLERGENS.concat(extra || [])) {
     for (let segment of segments) {
       // 3. Blank out look-alike phrases first (e.g. "cocoa butter" is not milk)
       for (const ex of allergen.exclude) {
