@@ -91,17 +91,23 @@ function personStatus(person, found) {
     else warn.push(id);
   }
   for (const id of person.diets || []) {
-    if (found[id] && found[id].status === "contains") diet.push(id);
+    // Labels: only "contains" counts ("may contain traces" is fine for a diet).
+    // Dishes: "some versions have meat" also counts, since it's worth asking.
+    if (found[id] && (found[id].status === "contains" || found[id].fromDish)) diet.push(id);
   }
   const level = danger.length ? "danger" : warn.length ? "warn" : diet.length ? "diet" : "safe";
   return { level: level, danger: danger, warn: warn, diet: diet, airborne: airborne };
 }
 
-// A dish uses "usually" / "sometimes" instead of "contains" / "may"
+// A dish uses "usually" / "sometimes" instead of "contains" / "may".
+// Each entry also carries a short reason ("why"), and the dish's diet info is added too.
 function dishAsFound(dish) {
   const found = {};
-  dish.sometimes.forEach(id => found[id] = { status: "may" });
-  dish.usually.forEach(id => found[id] = { status: "contains" });
+  const why = dish.why || {};
+  dish.sometimes.forEach(id => found[id] = { status: "may", why: why[id] });
+  dish.usually.forEach(id => found[id] = { status: "contains", why: why[id] });
+  const diets = typeof dishDiets === "function" ? dishDiets(dish) : {};
+  for (const id of Object.keys(diets)) found[id] = Object.assign({ fromDish: true }, diets[id]);
   return found;
 }
 

@@ -171,8 +171,9 @@
     }
     .chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 3px 0 var(--primary-dark); }
 
-    #reader { border-radius: 18px; overflow: hidden; margin-top: 14px; }
-    #reader:empty { display: none; }
+    #reader { border-radius: 18px; overflow: hidden; margin-top: 14px; background: #000; display: none; }
+    #reader.active { display: block; min-height: 260px; }
+    #reader video { width: 100% !important; height: auto !important; display: block; }
     #photoPreview { width: 100%; border-radius: 18px; margin-top: 14px; display: block; }
     .progress { height: 10px; background: var(--soft); border: 2px solid var(--line); border-radius: 99px; overflow: hidden; margin-top: 16px; }
     .progress > div { height: 100%; width: 0; background: var(--primary); border-radius: 99px; transition: width .2s; }
@@ -329,6 +330,15 @@
     .rows.who li.diet .pill { background: #fff; border-color: #B7DFA6; color: #2F6B1F; }
     .cook-note { font-size: 1.05rem; color: #8A3300; margin: 10px 0 0; }
     .cook-diet { font-size: 1.05rem; margin: 12px 0; }
+    .about-link { display: block; margin: 28px auto 0; background: none; border: 0; color: var(--muted); font-weight: 800; font-size: 0.92rem; text-decoration: underline; }
+    .safety-text { background: var(--surface); border: 2px solid var(--line); border-radius: 18px; padding: 4px 16px; line-height: 1.5; }
+    .safety-text h3 { font-size: 1rem; font-weight: 900; margin: 14px 0 4px; }
+    .safety-text p { color: var(--ink); margin: 10px 0; }
+    .safety-text ul { margin: 6px 0 12px; padding-left: 20px; }
+    .safety-text li { margin: 6px 0; }
+    .agree { display: flex; gap: 10px; align-items: flex-start; font-weight: 800; margin: 16px 2px 0; }
+    .agree input { width: 22px; height: 22px; flex: none; margin-top: 1px; accent-color: var(--primary); }
+    .btn:disabled { opacity: .45; }
     .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
     .sheet-actions .btn { width: 100%; }
     .btn.danger-text { background: var(--surface); color: var(--danger); border: 2px solid var(--line); box-shadow: 0 4px 0 var(--line); }
@@ -396,6 +406,8 @@
 
     <h3 class="row-title">Look up a dish</h3>
     <div class="chips" id="dishCarousel"></div>
+
+    <button class="about-link" id="aboutBtn">ⓘ About, safety &amp; privacy</button>
   </section>
 
   <!-- ===================== SCAN ===================== -->
@@ -408,7 +420,10 @@
     </button>
     <button class="btn big ghost" id="stopBtn" hidden>Stop camera</button>
     <div id="reader"></div>
-    <p class="hint">No camera? Type the number under the barcode.</p>
+    <label class="btn big ghost" for="barcodePhoto" style="margin-top:10px">📷 Take a photo of the barcode instead</label>
+    <input type="file" id="barcodePhoto" accept="image/*" capture="environment" hidden>
+    <div id="readerFile" hidden></div>
+    <p class="hint">Or type the number under the barcode.</p>
     <div class="field-row">
       <input type="text" id="barcodeInput" inputmode="numeric" placeholder="e.g. 044000032029" aria-label="Barcode number">
       <button class="btn" id="lookupBtn">Look up</button>
@@ -499,6 +514,50 @@
     <h3>Accessory</h3>
     <div class="chips" id="accChips"></div>
     <button class="btn big" id="studioDone">Save buddy</button>
+  </div>
+</div>
+
+<!-- ===================== Safety notice (first launch) and About ===================== -->
+<div class="sheet-backdrop" id="safety" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="safetyTitle">
+    <div id="safetyBuddy"></div>
+    <h2 id="safetyTitle">Before you start</h2>
+    <div class="safety-text">
+      <p><b>This app helps you check food, but it is not medical advice.</b></p>
+      <ul>
+        <li>It can make mistakes or miss ingredients. Labels change, photos can be misread, and food databases and AI can be wrong.</li>
+        <li>Always read the package label and ask the cook. <b>If you're not sure, don't eat it.</b></li>
+        <li>Talk to your doctor or allergist about your allergies and what's safe for you.</li>
+        <li><b>In an emergency,</b> use epinephrine if it was prescribed, and call 911 (or your local emergency number).</li>
+      </ul>
+    </div>
+    <label class="agree"><input type="checkbox" id="agreeBox"> I understand this app can be wrong and isn't medical advice.</label>
+    <button class="btn big" id="agreeBtn" disabled>Continue</button>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h2 id="aboutTitle">About, safety &amp; privacy</h2>
+    <div class="safety-text">
+      <h3>Safety</h3>
+      <p>This app is a helper, not medical advice, and it can be wrong. Always read the label, ask the cook, and follow your doctor's advice. In an emergency, use epinephrine if prescribed and call 911.</p>
+      <h3>How it decides</h3>
+      <p>The app checks ingredient lists against its own allergen dictionary (English, Hindi, Chinese, and Korean, including hidden names like whey and casein). Dishes come from a built-in guide of common recipes. Results marked <b>✨ AI estimate</b> come from Google's Gemini AI and should be double-checked.</p>
+      <h3>Your privacy</h3>
+      <ul>
+        <li>Your allergies, groups, and buddy are saved <b>only on this phone</b>. There are no accounts.</li>
+        <li>Share codes contain names and allergies, so only share them with people you trust.</li>
+        <li>Barcodes are looked up in Open Food Facts.</li>
+        <li>Food photos and the dish or allergy names you look up with ✨ AI are sent to Google's Gemini AI to answer you. Don't photograph people.</li>
+        <li>Label photos are read on your phone and aren't uploaded.</li>
+      </ul>
+      <h3>Credits</h3>
+      <p>Product data from <b>Open Food Facts</b> (openfoodfacts.org), shared under the Open Database License. Text reading by Tesseract.js. Barcode reading by html5-qrcode. AI by Google Gemini.</p>
+      <p>Made for the 2026 Congressional App Challenge.</p>
+    </div>
+    <button class="btn ghost big" id="showSafety">Show the safety notice again</button>
+    <button class="btn big" style="margin-top:10px" id="aboutClose">Close</button>
   </div>
 </div>
 
@@ -991,7 +1050,25 @@
     </div>`;
   }
 
-  function rowHtml(id, kind, pillText, words) {
+  // Explains a word found on a label, like "whey (from milk)" or "मूंगफली (Hindi for peanut)"
+  const LANG_NAME = { hi: 'Hindi', zh: 'Chinese', ko: 'Korean', other: 'another name' };
+  function explainWord(id, word) {
+    const a = allergenById(id);
+    const base = a.diet ? '' : (a.words && a.words.en && a.words.en[0]) || a.name.toLowerCase();
+    if (a.words) {
+      for (const lang of Object.keys(LANG_NAME)) {
+        if ((a.words[lang] || []).some(w => w.toLowerCase() === word.toLowerCase())) {
+          if (a.diet) return `${word} (${LANG_NAME[lang] === 'another name' ? 'not allowed' : LANG_NAME[lang]})`;
+          return lang === 'other' ? `${word} (another name for ${a.name.toLowerCase()})` : `${word} (${LANG_NAME[lang]} for ${base})`;
+        }
+      }
+    }
+    const w = word.toLowerCase();
+    if (!base || w.includes(base) || base.includes(w.replace(/s$/, ''))) return word;
+    return `${word} (from ${base})`;
+  }
+
+  function rowHtml(id, kind, pillText, words, why) {
     const a = allergenById(id), isMine = myAllergies.includes(id);
     // Who in the group has this allergy?
     let tag = '';
@@ -1002,8 +1079,9 @@
     return `<li class="${isMine ? 'mine ' : ''}${kind}${isDietId(id) ? ' diet' : ''}">
       <span class="dot" style="background:${colorOf(id)}"></span>
       <span class="name">${a.name}${tag ? `<span class="yours">${tag}</span>` : ''}</span>
-      <span class="pill">${isDietId(id) ? (kind === 'contains' ? 'Not ' + dietNames([id]) : 'Check') : pillText}</span>
-      ${words ? `<span class="words">Found: ${words.map(escapeHtml).join(', ')}</span>` : ''}
+      <span class="pill">${isDietId(id) ? (kind === 'contains' ? 'Not ' + dietNames([id]) : 'Ask first') : pillText}</span>
+      ${words ? `<span class="words">Found: ${words.map(w => escapeHtml(explainWord(id, w))).join(', ')}</span>` : ''}
+      ${why ? `<span class="words">${escapeHtml(why)}</span>` : ''}
     </li>`;
   }
 
@@ -1024,7 +1102,10 @@
     const maybe = s.warn.filter(id => found[id].status !== 'contains');
     if (mildHas.length) parts.push((isDish ? 'usually has ' : 'has ') + joinAnd(lower(mildHas).map(n => n + ' (mild)')));
     if (maybe.length) parts.push((isDish ? 'might have ' : 'may contain ') + joinAnd(lower(maybe)));
-    if (s.diet.length) parts.push('isn\'t ' + dietNames(s.diet));
+    for (const id of s.diet) {
+      const f = found[id];
+      parts.push((f.status === 'may' ? 'might not be ' : 'isn\'t ') + dietNames([id]) + (f.why ? ' (' + f.why.toLowerCase() + ')' : ''));
+    }
     return parts.join('; ');
   }
 
@@ -1064,16 +1145,15 @@
         isDish ? 'Recipes vary, so still ask the cook.' : 'Still give the package a quick check.');
     }
 
-    // A family or class: say who it's not safe for
+    // A family or class: say who it's not safe for, and why (up to 3 people)
     const n = list => list.length === 1 ? cap(displayName(list[0].p)) : list.length + ' people';
-    const also = (warn.length ? ' Ask first for ' + listNames(warn.map(x => x.p)) + '.' : '') +
-                 (diet.length ? ' Doesn\'t fit ' + listNames(diet.map(x => x.p)) + '\'s diet.' : '');
-    if (danger.length) return verdictHtml('danger', 'stop', kicker, (isDish ? 'Avoid for ' : 'Not safe for ') + n(danger),
-      cap(listNames(danger.map(x => x.p))) + (isDish ? ' usually can\'t have this.' : ' can\'t have this.') + also) + air;
-    if (warn.length) return verdictHtml('warn', 'unsure', kicker, 'Careful for ' + n(warn),
-      'Ask first for ' + listNames(warn.map(x => x.p)) + '.' + (diet.length ? ' Doesn\'t fit ' + listNames(diet.map(x => x.p)) + '\'s diet.' : '')) + air;
+    const affected = danger.concat(warn, diet);
+    const whyText = affected.slice(0, 3).map(x => cap(displayName(x.p)) + ' ' + reasonFor(x.p, x.s, found, isDish)).join('. ') +
+      (affected.length > 3 ? '. +' + (affected.length - 3) + ' more below' : '') + '.';
+    if (danger.length) return verdictHtml('danger', 'stop', kicker, (isDish ? 'Avoid for ' : 'Not safe for ') + n(danger), whyText) + air;
+    if (warn.length) return verdictHtml('warn', 'unsure', kicker, 'Careful for ' + n(warn), whyText + ' Ask first.') + air;
     if (diet.length) return verdictHtml('diet', 'unsure', kicker, 'Doesn\'t fit ' + (diet.length === 1 ? cap(displayName(diet[0].p)) + '\'s' : diet.length + ' people\'s') + ' diet',
-      'No allergy problems, but ' + listNames(diet.map(x => x.p)) + (diet.length === 1 ? ' doesn\'t' : ' don\'t') + ' eat this.') + air;
+      'No allergy problems. ' + whyText) + air;
     return verdictHtml('safe', 'happy', kicker, isDish ? 'Not usually a problem' : 'OK for everyone',
       isDish ? 'None of your group\'s allergens are in the usual recipe. Recipes vary, so still ask.'
              : 'None of your group\'s allergens found. Still give the package a quick check.') + air;
@@ -1147,25 +1227,79 @@
   async function stopScanner() {
     if (scanner) { try { await scanner.stop(); } catch (e) {} scanner = null; }
     $('reader').innerHTML = '';
+    $('reader').classList.remove('active');
     $('stopBtn').hidden = true;
     $('scanBtn').hidden = false;
   }
 
-  $('scanBtn').addEventListener('click', async () => {
+  // The settings for the barcode reader library
+  function newScanner(elementId) {
     const F = Html5QrcodeSupportedFormats;
-    scanner = new Html5Qrcode('reader', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E] });
-    $('scanBtn').hidden = true; $('stopBtn').hidden = false;
-    $('scanStatus').textContent = 'Hold the barcode inside the box.';
+    return new Html5Qrcode(elementId, {
+      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E],   // food barcodes
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }, // faster on phones that have it built in
+      verbose: false
+    });
+  }
+
+  function foundBarcode(code) {
+    if (navigator.vibrate) navigator.vibrate(60);
+    $('barcodeInput').value = code;
+    checkBarcode(code);
+  }
+
+  $('scanBtn').addEventListener('click', async () => {
+    $('scanResult').innerHTML = '';
+    if (typeof Html5Qrcode === 'undefined') {
+      $('scanStatus').textContent = 'The scanner didn\'t load. Check your internet and reload the app, or take a photo of the barcode instead.';
+      return;
+    }
+    if (!window.isSecureContext || !navigator.mediaDevices) {
+      $('scanStatus').textContent = 'The live camera only works on the https:// link. Take a photo of the barcode instead.';
+      return;
+    }
     try {
-      await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 120 } }, async code => {
-        if (navigator.vibrate) navigator.vibrate(60);
-        await stopScanner();
-        $('barcodeInput').value = code;
-        checkBarcode(code);
-      });
+      $('reader').classList.add('active');
+      $('scanBtn').hidden = true; $('stopBtn').hidden = false;
+      $('scanStatus').textContent = 'Starting the camera… If your phone asks, tap Allow.';
+      scanner = newScanner('reader');
+      await scanner.start(
+        { facingMode: 'environment' },   // the back camera
+        {
+          fps: 10,
+          // The scanning box: wide and short, like a barcode, and never bigger than the screen
+          qrbox: (w, h) => ({ width: Math.floor(Math.min(300, w * 0.85)), height: Math.floor(Math.min(150, h * 0.45)) })
+        },
+        async code => { await stopScanner(); foundBarcode(code); },
+        () => {}   // "no barcode in this frame yet": ignore
+      );
+      $('scanStatus').textContent = 'Hold the barcode inside the box, about 6 inches away.';
     } catch (err) {
-      $('scanStatus').textContent = 'Couldn\'t open the camera. Allow camera access in your browser settings, or type the barcode number.';
+      const msg = String(err && (err.name || err.message || err));
+      $('scanStatus').textContent = /NotAllowed|Permission/i.test(msg)
+        ? 'Camera access is blocked. Allow the camera for this site in your phone\'s settings, or take a photo of the barcode instead.'
+        : 'Couldn\'t start the live camera (' + msg.slice(0, 60) + '). Take a photo of the barcode instead.';
       stopScanner();
+    }
+  });
+
+  // Backup: read the barcode from a photo (works even when the live camera won't)
+  $('barcodePhoto').addEventListener('change', async () => {
+    const file = $('barcodePhoto').files[0];
+    $('barcodePhoto').value = '';
+    if (!file) return;
+    if (typeof Html5Qrcode === 'undefined') {
+      $('scanStatus').textContent = 'The scanner didn\'t load. Check your internet and reload the app, or type the number.';
+      return;
+    }
+    await stopScanner();
+    $('scanResult').innerHTML = '';
+    $('scanStatus').textContent = 'Reading the barcode in your photo…';
+    try {
+      const code = await newScanner('readerFile').scanFile(file, false);
+      foundBarcode(code);
+    } catch (err) {
+      $('scanStatus').textContent = 'I couldn\'t find a barcode in that photo. Get closer so the barcode fills the photo, with good light, or type the number.';
     }
   });
   $('stopBtn').addEventListener('click', () => { stopScanner(); $('scanStatus').textContent = ''; });
@@ -1270,9 +1404,12 @@
     const name = dish.names[0];
 
     // Never say "safe" for food with no label: nobody can see what's inside
-    const rows = [...dish.usually.map(id => [id, 'contains']), ...dish.sometimes.map(id => [id, 'may'])]
+    const why = dish.why || {};
+    const dietRows = Object.keys(found).filter(id => isDietId(id) && myAllergies.includes(id))
+      .map(id => [id, found[id].status]);
+    const rows = [...dish.usually.map(id => [id, 'contains']), ...dish.sometimes.map(id => [id, 'may']), ...dietRows]
       .sort((x, y) => myAllergies.includes(y[0]) - myAllergies.includes(x[0]))
-      .map(([id, kind]) => rowHtml(id, kind, kind === 'contains' ? 'Usually' : 'Sometimes')).join('');
+      .map(([id, kind]) => rowHtml(id, kind, kind === 'contains' ? 'Usually' : 'Sometimes', null, isDietId(id) ? found[id].why : why[id])).join('');
 
     const aiTop = dish.ai
       ? `<span class="ai-badge">✨ AI estimate${dish.confidence ? ' · ' + dish.confidence + ' confidence' : ''}. Double-check.</span>` +
@@ -1281,7 +1418,6 @@
     $('dishResult').innerHTML = groupVerdict(found, 'dish', name) + aiTop +
       whoHtml(found, 'dish') +
       (rows ? `${isSolo() ? '' : '<h4 class="who-title">Usually in it</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens in the usual recipe.</p>') +
-      (myAllergies.some(isDietId) ? '<p class="note">Diets aren\'t checked for dishes yet. Ask the cook what\'s in it.</p>' : '') +
       (myAllergies.some(id => id.startsWith('c_')) ? `<p class="note">The dish guide only knows the main allergens. Ask the cook about ${escapeHtml(joinAnd(myAllergies.filter(id => id.startsWith('c_')).map(id => allergenById(id).name.toLowerCase())))}.</p>` : '') +
       '<p class="note">Based on common recipes, not a guarantee. Every cook is different.</p>' +
       (myAllergies.length ? '<div style="padding:16px 16px 0"><button class="btn big" id="toAsk">Ask the cook</button></div>' : '');
@@ -1292,6 +1428,7 @@
   // Turns an AI answer into the same shape as a dish from dishes.js
   function aiToDish(r, fromPhoto) {
     return { names: [r.dish || 'This dish'], usually: r.usually || [], sometimes: r.sometimes || [],
+             why: r.why || {}, diet: r.diet || {},
              ai: true, note: r.note, confidence: fromPhoto ? r.confidence : null };
   }
 
@@ -1482,7 +1619,25 @@
     pv.joining = decodeGroup(joinCode);
     if (pv.joining) openPeople('join');
   }
-  if ($('people').hidden && !people.groups.length) openPeople('start'); // first time
+  // ---------- Safety notice and About ----------
+  function openSafety() {
+    $('safetyBuddy').innerHTML = buddySvg('wave', 80);
+    $('agreeBox').checked = false;
+    $('agreeBtn').disabled = true;
+    $('safety').hidden = false;
+  }
+  $('agreeBox').addEventListener('change', () => { $('agreeBtn').disabled = !$('agreeBox').checked; });
+  $('agreeBtn').addEventListener('click', () => {
+    save('disclaimerOk', true);
+    $('safety').hidden = true;
+    if (!people.groups.length && $('people').hidden) openPeople('start');   // first time: set up next
+  });
+  $('aboutBtn').addEventListener('click', () => { $('about').hidden = false; $('about').querySelector('.sheet').scrollTop = 0; });
+  $('aboutClose').addEventListener('click', () => { $('about').hidden = true; });
+  $('showSafety').addEventListener('click', () => { $('about').hidden = true; openSafety(); });
+
+  if (!load('disclaimerOk', false)) openSafety();                                   // first time: safety notice
+  else if ($('people').hidden && !people.groups.length) openPeople('start');          // then setup
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>

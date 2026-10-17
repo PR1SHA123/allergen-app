@@ -24,6 +24,16 @@ const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
 // The 9 allergens the app knows (the AI must use these exact ids)
 const ALLERGEN_IDS = ["milk", "egg", "wheat", "peanut", "treenut", "soy", "fish", "shellfish", "sesame"];
 const LANGS = ["en", "hi", "zh-s", "zh-t", "ko"];
+const DIET_TAGS = ["meat", "pork", "beef", "alcohol", "onion"];
+
+// Extra rules shared by the dish and photo questions
+const WHY_AND_DIET_RULES =
+`- "why": for EVERY allergen you listed, one short plain reason (under 12 words) saying which ingredient causes it,
+  for example {"wheat": "Flour tortillas are made from wheat", "milk": "Cheese and sour cream are dairy"}.
+- "diet": how often the dish has these, using "u" (usually) or "s" (sometimes); leave out ones it doesn't have:
+  "meat" (any meat or poultry), "pork", "beef", "alcohol" (wine, beer, mirin, cooking wine),
+  "onion" (onion, garlic, potato, or other root vegetables).
+  Example: {"meat": "u", "beef": "s", "onion": "u"}.`;
 
 export default {
   async fetch(request, env) {
@@ -95,13 +105,14 @@ async function dishTask(body, env) {
   const prompt =
 `A person is about to eat a dish called: "${name}".
 Return JSON only, in this exact shape:
-{"known": true, "dish": "", "usually": [], "sometimes": [], "note": ""}
+{"known": true, "dish": "", "usually": [], "sometimes": [], "why": {}, "diet": {}, "note": ""}
 
 Rules:
 - "known": false if you don't recognize this as a dish or food.
 - "dish": the dish's common English name.
 - "usually": allergens in the normal recipe. "sometimes": allergens in many versions, sauces, or toppings.
 - Use ONLY these ids: ${ALLERGEN_IDS.join(", ")}. "treenut" means tree nuts. "shellfish" includes shrimp, crab, and mollusks.
+${WHY_AND_DIET_RULES}
 - "note": one short sentence about a hidden ingredient to ask about (for example fish sauce or peanut oil), or "".`;
 
   return cleanDish(await askGemini(env, [{ text: prompt }]));
@@ -115,7 +126,7 @@ async function photoTask(body, env) {
   const prompt =
 `Look at this photo of food.
 Return JSON only, in this exact shape:
-{"isFood": true, "dish": "", "confidence": "high", "usually": [], "sometimes": [], "note": ""}
+{"isFood": true, "dish": "", "confidence": "high", "usually": [], "sometimes": [], "why": {}, "diet": {}, "note": ""}
 
 Rules:
 - "isFood": false if the photo is not food.
@@ -124,10 +135,12 @@ Rules:
 - "usually": allergens in the normal recipe for this dish. "sometimes": allergens in many versions, sauces, or toppings.
 - Use ONLY these ids: ${ALLERGEN_IDS.join(", ")}.
 - A photo can't show hidden ingredients, so include anything commonly used.
+${WHY_AND_DIET_RULES}
 - "note": one short sentence about a hidden ingredient to ask about, or "".`;
 
   const out = await askGemini(env, [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: image } }]);
-  const dish = cleanDish({ known: out.isFood !== false, dish: out.dish, usually: out.usually, sometimes: out.sometimes, note: out.note });
+  const dish = cleanDish({ known: out.isFood !== false, dish: out.dish, usually: out.usually, sometimes: out.sometimes,
+                           why: out.why, diet: out.diet, note: out.note });
   dish.isFood = out.isFood !== false;
   dish.confidence = ["high", "medium", "low"].includes(out.confidence) ? out.confidence : "low";
   return dish;
@@ -166,11 +179,24 @@ function cleanIds(list) {
 }
 function cleanDish(out) {
   const usually = cleanIds(out.usually);
+  const sometimes = cleanIds(out.sometimes).filter(id => !usually.includes(id));
+  const why = {};
+  for (const id of usually.concat(sometimes)) {
+    const reason = cleanText(out.why && out.why[id], 100);
+    if (reason) why[id] = reason;
+  }
+  const diet = {};
+  for (const tag of DIET_TAGS) {
+    const v = out.diet && out.diet[tag];
+    if (v === "u" || v === "s") diet[tag] = v;
+  }
   return {
     known: out.known !== false,
     dish: cleanText(out.dish, 60),
     usually: usually,
-    sometimes: cleanIds(out.sometimes).filter(id => !usually.includes(id)),
+    sometimes: sometimes,
+    why: why,
+    diet: diet,
     note: cleanText(out.note, 200)
   };
 }
