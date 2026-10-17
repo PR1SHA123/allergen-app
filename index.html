@@ -29,6 +29,9 @@
   <script src="dishes.js"></script>
   <script src="askcook.js"></script>
   <script src="mascot.js"></script>
+  <script src="people.js"></script>
+  <!-- qrcode-generator: draws QR codes for sharing a group -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 
   <style>
     /* ========== Colors, fonts, sizes ========== */
@@ -268,6 +271,56 @@
       border-radius: 999px; padding: 5px 12px; font-weight: 900; font-size: 0.85rem;
     }
 
+    /* ========== People & groups ========== */
+    .avatar {
+      width: 30px; height: 30px; border-radius: 50%; flex: none;
+      display: grid; place-items: center; font-weight: 900; font-size: 0.9rem; color: var(--ink);
+      border: 2px solid rgba(43,45,66,.15);
+    }
+    .person-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface); border: 2px solid var(--line); border-radius: 999px;
+      padding: 3px 12px 3px 3px; font-weight: 800; font-size: 0.92rem;
+    }
+    .person-chip .avatar { width: 26px; height: 26px; font-size: 0.8rem; }
+    .mini-dots { display: inline-flex; gap: 2px; }
+    .mini-dots .dot { width: 9px; height: 9px; border-width: 1px; }
+    .back { background: none; border: 0; color: var(--primary); font-weight: 900; padding: 4px 0; margin-bottom: 4px; }
+    .option {
+      width: 100%; display: flex; align-items: center; gap: 14px; text-align: left;
+      background: var(--surface); border: 2px solid var(--line); border-radius: 22px; box-shadow: 0 4px 0 var(--line);
+      padding: 14px 16px; margin-bottom: 10px;
+    }
+    .option .big-ic { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; flex: none; }
+    .option .big-ic svg { width: 26px; height: 26px; }
+    .option b { display: block; font-size: 1.08rem; font-weight: 900; }
+    .option span.desc { color: var(--muted); font-size: 0.9rem; }
+    .group-card[aria-pressed="true"] { border-color: var(--primary); box-shadow: 0 4px 0 var(--primary); }
+    .group-card .check { margin-left: auto; color: var(--primary); font-weight: 900; }
+    .member {
+      width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+      background: var(--surface); border: 2px solid var(--line); border-radius: 18px;
+      padding: 10px 12px; margin-bottom: 8px;
+    }
+    .member .who-name { font-weight: 900; }
+    .member .allergy-list { color: var(--muted); font-size: 0.85rem; font-weight: 700; }
+    .member .edit { margin-left: auto; color: var(--primary); font-weight: 900; font-size: 0.85rem; }
+    .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .sheet-actions .btn { width: 100%; }
+    .btn.danger-text { background: var(--surface); color: var(--danger); border: 2px solid var(--line); box-shadow: 0 4px 0 var(--line); }
+    .qr-box { background: #fff; border: 2px solid var(--line); border-radius: 22px; padding: 16px; display: grid; place-items: center; }
+    .qr-box svg { width: 100%; max-width: 260px; height: auto; }
+    .privacy { background: var(--warn-bg); color: var(--warn); border-radius: 16px; padding: 10px 14px; font-size: 0.88rem; font-weight: 700; margin: 12px 0 0; }
+    .who-title { font-size: 1rem; font-weight: 900; margin: 14px 20px 4px; }
+    .rows.who li.danger { background: var(--danger-bg); }
+    .rows.who li.warn { background: var(--warn-bg); }
+    .rows.who li { grid-template-columns: 30px 1fr auto; }
+    .rows.who li.danger .pill { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .rows.who li.warn .pill { background: #fff; border-color: #F2C25B; color: var(--warn); }
+    .rows.who li.safe .pill { background: var(--safe-bg); border-color: #A9E3BF; color: var(--safe); }
+    .for-row { margin-top: 14px; }
+    .for-row .hint { margin: 0 0 8px; }
+
     /* ========== Floating tab bar ========== */
     nav.tabs {
       position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 30;
@@ -291,8 +344,8 @@
 
   <header class="top">
     <p class="greeting" id="greeting">Hello</p>
-    <button class="me" id="meBtn" aria-label="Edit my allergies">
-      <span class="dots" id="meDots"></span><span id="meText">My allergies</span>
+    <button class="me" id="meBtn" aria-label="Who are we checking for?">
+      <span class="dots" id="meDots"></span><span id="meText">Set up</span>
     </button>
   </header>
 
@@ -314,7 +367,7 @@
       <button class="action" data-go="ask" style="--c:#D9F2D0"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#2B2D42" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg></span>Ask the cook</button>
     </div>
 
-    <h3 class="row-title">Your allergies</h3>
+    <h3 class="row-title" id="checkingTitle">Checking for</h3>
     <div class="my-row" id="myRow"></div>
 
     <h3 class="row-title">Look up a dish</h3>
@@ -380,6 +433,7 @@
     <h2 class="title">Ask the cook</h2>
     <p class="lede">Show this to the server, cook, or host. Pick their language.</p>
     <div class="chips" id="cookLangs" role="group" aria-label="Card language"></div>
+    <div class="for-row" id="cookForRow"><p class="hint">Who is it for?</p><div class="chips" id="cookFor"></div></div>
     <div class="cook-card" id="cookCard"></div>
     <button class="btn big" id="fullBtn" style="margin-top:16px">Show full screen</button>
   </section>
@@ -396,15 +450,9 @@
   </div>
 </nav>
 
-<!-- ===================== Allergy picker ===================== -->
-<div class="sheet-backdrop" id="sheet" hidden>
-  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
-    <div id="sheetBao"></div>
-    <h2 id="sheetTitle">What are you allergic to?</h2>
-    <p>Tap everything that applies. I'll watch out for these.</p>
-    <div class="allergy-grid" id="allergyGrid"></div>
-    <button class="btn big" id="sheetDone">Save</button>
-  </div>
+<!-- ===================== People & groups ===================== -->
+<div class="sheet-backdrop" id="people" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="People and groups" id="peopleBody"></div>
 </div>
 
 <!-- ===================== Buddy studio ===================== -->
@@ -447,40 +495,271 @@
   };
   
   // ============================================================
-  // My allergies
+  // PEOPLE: who are we checking food for?
+  // (the data and share codes live in people.js)
   // ============================================================
-  let myAllergies = load('myAllergies', []);
+  let people = loadPeople();
+  let myAllergies = [];   // every allergy in the current group, kept up to date by sync()
 
+  const group = () => activeGroup(people);
+  const members = () => (group() ? group().members : []);
+  const isSolo = () => members().length <= 1;
+  const displayName = p => (p.name === 'Me' ? 'you' : p.name);
+  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+  function joinAnd(list) { return list.length < 2 ? list.join('') : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1]; }
+  function listNames(ps, max = 3) {
+    const n = ps.map(displayName);
+    return n.length <= max ? joinAnd(n) : n.slice(0, max).join(', ') + ' and ' + (n.length - max) + ' more';
+  }
+
+  function sync() { myAllergies = groupAllergies(group()); savePeople(people); }
+
+  // A colored circle with someone's first letter
+  const AVATAR_COLORS = ['#BFDDFF', '#FFE38A', '#FFC1B8', '#C6EBA8', '#DCC8FA', '#A8E6EA', '#F2D19B', '#FFD4E5'];
+  function avatar(p) {
+    let h = 0;
+    for (const ch of p.name) h = (h * 31 + ch.charCodeAt(0)) % 997;
+    return `<span class="avatar" style="background:${AVATAR_COLORS[h % AVATAR_COLORS.length]}">${escapeHtml([...p.name][0] || '?').toUpperCase()}</span>`;
+  }
+  const dots = ids => `<span class="mini-dots">${ids.map(id => `<span class="dot" style="background:${COLORS[id]}"></span>`).join('')}</span>`;
+
+  // Header button + "Checking for" on Home
   function renderMe() {
+    const g = group();
     $('meDots').innerHTML = myAllergies.slice(0, 4).map(id => `<span class="dot" style="background:${COLORS[id]}"></span>`).join('');
-    $('meText').textContent = myAllergies.length ? 'Edit' : 'Set allergies';
-    $('myRow').innerHTML = myAllergies.map(id =>
-      `<span class="tagpill" style="background:${COLORS[id]}">${allergenById(id).name}</span>`).join('') +
-      `<button class="tagpill add" id="addAllergy">${myAllergies.length ? 'Edit' : '+ Add your allergies'}</button>`;
-    $('addAllergy').addEventListener('click', openSheet);
+    $('meText').textContent = g ? g.name : 'Set up';
+    $('checkingTitle').textContent = g ? 'Checking for ' + g.name : 'Who are we checking for?';
+    const shown = g ? g.members.slice(0, 10) : [];
+    $('myRow').innerHTML =
+      shown.map(p => `<span class="person-chip">${avatar(p)}${escapeHtml(p.name)}${dots(p.allergies)}</span>`).join('') +
+      (g && g.members.length > 10 ? `<span class="person-chip" style="padding-left:12px">+${g.members.length - 10} more</span>` : '') +
+      `<button class="tagpill add" id="managePeople">${g ? 'Manage' : '+ Set up'}</button>`;
+    $('managePeople').addEventListener('click', () => openPeople(g ? 'group' : 'start', g && g.id));
   }
 
-  function openSheet() {
-    $('sheetBao').innerHTML = baoSvg('wave', 84);
-    $('sheetTitle').textContent = `Hi, I'm ${getBuddy().name}! What are you allergic to?`;
-    $('allergyGrid').innerHTML = ALLERGENS.map(a => `
-      <button class="tile" data-id="${a.id}" style="--c:${COLORS[a.id]}" aria-pressed="${myAllergies.includes(a.id)}">
-        <span class="blob"></span>${a.name}
-      </button>`).join('');
-    $('sheet').hidden = false;
+  // ---------- The people sheet: several small screens ----------
+  let pv = { view: 'groups', groupId: null, personId: null, joining: null };
+
+  function openPeople(view, groupId, personId) {
+    pv = { view: view || 'groups', groupId: groupId || (group() && group().id), personId: personId || null, joining: pv.joining };
+    renderPeople();
+    $('people').hidden = false;
   }
-  $('allergyGrid').addEventListener('click', e => {
-    const t = e.target.closest('.tile');
-    if (t) t.setAttribute('aria-pressed', t.getAttribute('aria-pressed') !== 'true');
+  function closePeople() {
+    $('people').hidden = true;
+    sync(); refreshAll();
+  }
+
+  const ICONS = {
+    me: '<svg viewBox="0 0 24 24" fill="none" stroke="#2B2D42" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/></svg>',
+    family: '<svg viewBox="0 0 24 24" fill="none" stroke="#2B2D42" stroke-width="2.2" stroke-linecap="round"><circle cx="8" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20c.8-3.5 3-5.5 6-5.5s5.2 2 6 5.5M14 20c.4-2.5 1.6-4 3-4s2.8 1.5 3.4 4"/></svg>',
+    class: '<svg viewBox="0 0 24 24" fill="none" stroke="#2B2D42" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v11H3z"/><path d="M8 20h8M12 16v4M7 9h6M7 12h4"/></svg>'
+  };
+
+  function renderPeople() {
+    const body = $('peopleBody');
+    const g = people.groups.find(x => x.id === pv.groupId);
+    const buddy = getBuddy();
+    let html = '';
+
+    if (pv.view === 'start') {
+      html = `<div>${buddySvg('wave', 84)}</div>
+        <h2>Hi, I'm ${escapeHtml(buddy.name)}! Who are we checking food for?</h2>
+        <p>You can add more groups later.</p>
+        <button class="option" data-action="start" data-kind="me"><span class="big-ic" style="background:#CDEBFF">${ICONS.me}</span><span><b>Just me</b><span class="desc">My own allergies</span></span></button>
+        <button class="option" data-action="start" data-kind="family"><span class="big-ic" style="background:#FFE8A8">${ICONS.family}</span><span><b>My family</b><span class="desc">Everyone at home, each with their own allergies</span></span></button>
+        <button class="option" data-action="start" data-kind="class"><span class="big-ic" style="background:#D9F2D0">${ICONS.class}</span><span><b>A class or party</b><span class="desc">Check snacks for a whole group at once</span></span></button>`;
+    }
+
+    else if (pv.view === 'groups') {
+      html = `<h2>Who are we checking for?</h2>
+        <p>Pick a group. Every result will show who the food is safe for.</p>
+        ${people.groups.map(x => `
+          <button class="option group-card" data-action="open-group" data-id="${x.id}" aria-pressed="${x.id === people.activeId}">
+            <span class="big-ic" style="background:${x.type === 'class' ? '#D9F2D0' : '#FFE8A8'}">${x.type === 'class' ? ICONS.class : ICONS.family}</span>
+            <span><b>${escapeHtml(x.name)}</b><span class="desc">${x.members.length} ${x.members.length === 1 ? 'person' : 'people'}</span></span>
+            ${x.id === people.activeId ? '<span class="check">✓ Using</span>' : ''}
+          </button>`).join('')}
+        <div class="sheet-actions">
+          <button class="btn ghost" data-action="new-group" data-kind="family">+ New family</button>
+          <button class="btn ghost" data-action="new-group" data-kind="class">+ New class</button>
+        </div>
+        <button class="btn ghost big" style="margin-top:10px" data-action="paste">Join with a share code</button>
+        <button class="btn big" data-action="close">Done</button>`;
+    }
+
+    else if (pv.view === 'group' && g) {
+      html = `<button class="back" data-action="to-groups">‹ All groups</button>
+        <label class="hint" for="groupName" style="display:block;margin:0 0 6px">Group name</label>
+        <input type="text" id="groupName" maxlength="30" value="${escapeHtml(g.name)}">
+        <h3 class="row-title" style="margin-top:18px">${g.type === 'class' ? 'Kids' : 'People'} (${g.members.length})</h3>
+        ${g.members.map(m => `
+          <button class="member" data-action="edit-person" data-id="${m.id}">
+            ${avatar(m)}
+            <span><span class="who-name">${escapeHtml(m.name)}</span><br>
+              <span class="allergy-list">${m.allergies.length ? m.allergies.map(id => allergenById(id).name).join(', ') : 'No allergies'}</span></span>
+            <span class="edit">Edit</span>
+          </button>`).join('') || `<p>No one here yet.</p>`}
+        <button class="btn ghost big" data-action="add-person">+ Add ${g.type === 'class' ? 'a kid' : 'a person'}</button>
+        <div class="sheet-actions">
+          <button class="btn ghost" data-action="share">Share</button>
+          <button class="btn danger-text" data-action="delete-group">Delete group</button>
+        </div>
+        <button class="btn big" data-action="use-group">Use this group</button>`;
+    }
+
+    else if (pv.view === 'person' && g) {
+      const m = g.members.find(x => x.id === pv.personId) || { name: '', allergies: [] };
+      const placeholder = g.type === 'class' ? 'First name or nickname' : (g.members.length ? 'Name, like Mom or Arjun' : 'Your name');
+      html = `<button class="back" data-action="back-from-person">‹ ${escapeHtml(g.name)}</button>
+        <h2>${pv.personId ? 'Edit ' + escapeHtml(m.name) : (g.type === 'class' ? 'Add a kid' : 'Add a person')}</h2>
+        <label class="hint" for="personName" style="display:block;margin:0 0 6px">Name</label>
+        <input type="text" id="personName" maxlength="20" placeholder="${placeholder}" value="${escapeHtml(m.name === 'Me' ? '' : m.name)}">
+        <h3 class="row-title" style="margin-top:18px">Allergies</h3>
+        <div class="allergy-grid" id="allergyGrid">
+          ${ALLERGENS.map(a => `<button class="tile" data-id="${a.id}" style="--c:${COLORS[a.id]}" aria-pressed="${m.allergies.includes(a.id)}"><span class="blob"></span>${a.name}</button>`).join('')}
+        </div>
+        <button class="btn big" data-action="save-person">Save</button>
+        ${pv.personId && g.members.length > 1 ? '<button class="btn danger-text big" style="margin-top:10px" data-action="delete-person">Remove</button>' : ''}`;
+    }
+
+    else if (pv.view === 'share' && g) {
+      const link = location.origin + location.pathname + '#join=' + encodeGroup(g);
+      let qrSvg = '';
+      try { const qr = qrcode(0, 'M'); qr.addData(link); qr.make(); qrSvg = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+      catch (e) { qrSvg = '<p>Couldn\'t draw the QR code. Use Copy link instead.</p>'; }
+      html = `<button class="back" data-action="back-to-group">‹ ${escapeHtml(g.name)}</button>
+        <h2>Share ${escapeHtml(g.name)}</h2>
+        <p>Scan this with another phone's camera to copy the group there.</p>
+        <div class="qr-box">${qrSvg}</div>
+        <p class="privacy">Anyone with this code can see the names and allergies in it.${g.type === 'class' ? ' For a class, use first names or nicknames.' : ''}</p>
+        <div class="sheet-actions">
+          <button class="btn ghost" data-action="copy-link" data-link="${escapeHtml(link)}">Copy link</button>
+          <button class="btn" data-action="native-share" data-link="${escapeHtml(link)}">Send…</button>
+        </div>`;
+    }
+
+    else if (pv.view === 'paste') {
+      html = `<button class="back" data-action="to-groups">‹ All groups</button>
+        <h2>Join with a share code</h2>
+        <p>Paste the link or code someone sent you.</p>
+        <textarea id="pasteCode" rows="3" placeholder="https://…#join=…"></textarea>
+        <p class="status" id="pasteStatus"></p>
+        <button class="btn big" data-action="check-code">Continue</button>`;
+    }
+
+    else if (pv.view === 'join' && pv.joining) {
+      const j = pv.joining;
+      html = `<div>${buddySvg('happy', 84)}</div>
+        <h2>Add ${escapeHtml(j.name)} to this phone?</h2>
+        <p>${j.type === 'class' ? 'Class or party' : 'Family'} with ${j.members.length} ${j.members.length === 1 ? 'person' : 'people'}.</p>
+        ${j.members.slice(0, 12).map(m => `<div class="member">${avatar(m)}<span><span class="who-name">${escapeHtml(m.name)}</span><br>
+          <span class="allergy-list">${m.allergies.map(id => allergenById(id).name).join(', ') || 'No allergies'}</span></span></div>`).join('')}
+        ${j.members.length > 12 ? `<p>+ ${j.members.length - 12} more</p>` : ''}
+        <button class="btn big" data-action="accept-join">Add and use this group</button>
+        <button class="btn ghost big" style="margin-top:10px" data-action="${people.groups.length ? 'to-groups' : 'to-start'}">Cancel</button>`;
+    }
+
+    else { pv.view = people.groups.length ? 'groups' : 'start'; return renderPeople(); }
+
+    body.innerHTML = html;
+    body.scrollTop = 0;
+  }
+
+  // Tapping allergy tiles on the person screen
+  $('peopleBody').addEventListener('click', e => {
+    const tile = e.target.closest('.tile');
+    if (tile) { tile.setAttribute('aria-pressed', tile.getAttribute('aria-pressed') !== 'true'); return; }
+
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const a = btn.dataset.action;
+    const g = people.groups.find(x => x.id === pv.groupId);
+
+    // Keep a renamed group's name
+    if (g && $('groupName')) g.name = $('groupName').value.trim() || g.name;
+
+    if (a === 'start') {
+      const kind = btn.dataset.kind;
+      const ng = {
+        id: newId(),
+        type: kind === 'class' ? 'class' : 'family',
+        name: kind === 'me' ? 'Just me' : kind === 'class' ? 'My class' : 'My family',
+        members: []
+      };
+      people.groups.push(ng); people.activeId = ng.id; sync();
+      pv.groupId = ng.id; pv.personId = null; pv.view = 'person';
+    }
+    else if (a === 'to-start') pv.view = 'start';
+    else if (a === 'to-groups') pv.view = 'groups';
+    else if (a === 'close') return closePeople();
+    else if (a === 'open-group') { pv.groupId = btn.dataset.id; pv.view = 'group'; }
+    else if (a === 'new-group') {
+      const kind = btn.dataset.kind;
+      const ng = { id: newId(), type: kind, name: kind === 'class' ? 'My class' : 'My family', members: [] };
+      people.groups.push(ng); sync();
+      pv.groupId = ng.id; pv.personId = null; pv.view = 'person';
+    }
+    else if (a === 'use-group') { people.activeId = g.id; return closePeople(); }
+    else if (a === 'add-person') { pv.personId = null; pv.view = 'person'; }
+    else if (a === 'edit-person') { pv.personId = btn.dataset.id; pv.view = 'person'; }
+    else if (a === 'back-from-person') pv.view = g && g.members.length ? 'group' : 'groups';
+    else if (a === 'back-to-group') pv.view = 'group';
+    else if (a === 'save-person') {
+      const allergies = [...document.querySelectorAll('#allergyGrid .tile[aria-pressed="true"]')].map(t => t.dataset.id);
+      let name = $('personName').value.trim();
+      if (!name) name = g.name === 'Just me' && !g.members.length ? 'Me' : 'Person ' + (g.members.length + 1);
+      const existing = g.members.find(x => x.id === pv.personId);
+      if (existing) { existing.name = name; existing.allergies = allergies; }
+      else g.members.push({ id: newId(), name: name, allergies: allergies });
+      sync();
+      // "Just me" is done after one person; families and classes go back to the list
+      if (g.name === 'Just me' && g.members.length === 1) { people.activeId = g.id; return closePeople(); }
+      pv.view = 'group';
+    }
+    else if (a === 'delete-person') {
+      if (!confirm('Remove this person?')) return;
+      g.members = g.members.filter(x => x.id !== pv.personId); sync();
+      pv.view = 'group';
+    }
+    else if (a === 'delete-group') {
+      if (!confirm('Delete ' + g.name + '? This can\'t be undone.')) return;
+      people.groups = people.groups.filter(x => x.id !== g.id);
+      if (people.activeId === g.id) people.activeId = people.groups[0] ? people.groups[0].id : null;
+      sync();
+      pv.view = people.groups.length ? 'groups' : 'start';
+    }
+    else if (a === 'share') pv.view = 'share';
+    else if (a === 'copy-link') {
+      const link = btn.dataset.link;
+      (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+        .then(() => { btn.textContent = 'Copied!'; })
+        .catch(() => { prompt('Copy this link:', link); });
+      return;
+    }
+    else if (a === 'native-share') {
+      const link = btn.dataset.link;
+      if (navigator.share) navigator.share({ title: g.name, text: 'Join ' + g.name + ' on my allergy app', url: link }).catch(() => {});
+      else btn.textContent = 'Use Copy link';
+      return;
+    }
+    else if (a === 'paste') pv.view = 'paste';
+    else if (a === 'check-code') {
+      const j = decodeGroup(codeFromText($('pasteCode').value));
+      if (!j) { $('pasteStatus').textContent = 'That code didn\'t work. Check that you copied the whole link.'; return; }
+      pv.joining = j; pv.view = 'join';
+    }
+    else if (a === 'accept-join') {
+      people.groups.push(pv.joining); people.activeId = pv.joining.id; pv.joining = null;
+      return closePeople();
+    }
+    renderPeople();
   });
-  $('sheetDone').addEventListener('click', () => {
-    myAllergies = [...$('allergyGrid').querySelectorAll('.tile[aria-pressed="true"]')].map(t => t.dataset.id);
-    save('myAllergies', myAllergies);
-    $('sheet').hidden = true;
-    renderMe();
-    refreshAll();
-  });
-  $('meBtn').addEventListener('click', openSheet);
+
+  // Tap outside the sheet to close it (only once something is set up)
+  $('people').addEventListener('click', e => { if (e.target.id === 'people' && people.groups.length) closePeople(); });
+  $('meBtn').addEventListener('click', () => openPeople(people.groups.length ? 'groups' : 'start'));
+
 
   // ============================================================
   // Tabs
@@ -528,35 +807,89 @@
 
   function rowHtml(id, kind, pillText, words) {
     const a = allergenById(id), isMine = myAllergies.includes(id);
+    // Who in the group has this allergy?
+    let tag = '';
+    if (isMine) {
+      const who = members().filter(p => p.allergies.includes(id));
+      tag = isSolo() ? 'yours' : who.slice(0, 2).map(p => escapeHtml(p.name)).join(', ') + (who.length > 2 ? ' +' + (who.length - 2) : '');
+    }
     return `<li class="${isMine ? 'mine ' : ''}${kind}">
       <span class="dot" style="background:${COLORS[id]}"></span>
-      <span class="name">${a.name}${isMine ? '<span class="yours">yours</span>' : ''}</span>
+      <span class="name">${a.name}${tag ? `<span class="yours">${tag}</span>` : ''}</span>
       <span class="pill">${pillText}</span>
       ${words ? `<span class="words">Found: ${words.map(escapeHtml).join(', ')}</span>` : ''}
     </li>`;
   }
 
+  // The big colored answer at the top. kind = "label" (packaged food) or "dish" (no label)
+  function groupVerdict(found, kind, dishName) {
+    const ms = members();
+    if (!myAllergies.length) {
+      return verdictHtml('', 'wave', dishName || 'Almost there', 'Set up who you\'re checking for',
+        'Tap the button at the top and add allergies, so I know what to look for.');
+    }
+    const st = ms.map(p => ({ p: p, s: personStatus(p, found) }));
+    const danger = st.filter(x => x.s.level === 'danger');
+    const warn = st.filter(x => x.s.level === 'warn');
+    const allC = myAllergies.filter(id => found[id] && found[id].status === 'contains');
+    const allM = myAllergies.filter(id => found[id] && found[id].status === 'may');
+    const isDish = kind === 'dish';
+    const kicker = dishName || (danger.length ? 'Stop' : warn.length ? 'Careful' : 'Looks good');
+
+    // Just one person: talk to them directly
+    if (isSolo()) {
+      const who = displayName(ms[0]);
+      if (danger.length) return verdictHtml('danger', 'stop', kicker, isDish ? 'Usually has your allergen' : 'Not safe for ' + who,
+        (isDish ? 'Usually made with ' : 'Contains ') + namesOf(allC) + '.' + (allM.length ? (isDish ? ' Some versions have ' : ' May also contain ') + namesOf(allM) + '.' : '') + (isDish ? ' Ask before eating.' : ''));
+      if (warn.length) return verdictHtml('warn', 'unsure', kicker, isDish ? 'Sometimes has your allergen' : 'Might not be safe',
+        (isDish ? 'Some versions include ' : 'May contain ') + namesOf(allM) + '.' + (isDish ? ' Ask before eating.' : ''));
+      return verdictHtml('safe', 'happy', kicker, isDish ? 'Not usually in this dish' : 'None of your allergens',
+        isDish ? 'Recipes vary, so still ask the cook.' : 'Still give the package a quick check.');
+    }
+
+    // A family or class: say who it's not safe for
+    const n = list => list.length === 1 ? cap(displayName(list[0].p)) : list.length + ' people';
+    if (danger.length) return verdictHtml('danger', 'stop', kicker,
+      (isDish ? 'Avoid for ' : 'Not safe for ') + n(danger),
+      cap(listNames(danger.map(x => x.p))) + (isDish ? ' usually can\'t have this.' : ' can\'t have this.') +
+      (warn.length ? ' Ask first for ' + listNames(warn.map(x => x.p)) + '.' : ''));
+    if (warn.length) return verdictHtml('warn', 'unsure', kicker, 'Careful for ' + n(warn),
+      (isDish ? 'Some versions include ' : 'May contain ') + namesOf(allM) + '. Ask first for ' + listNames(warn.map(x => x.p)) + '.');
+    return verdictHtml('safe', 'happy', kicker, isDish ? 'Not usually a problem' : 'OK for everyone',
+      isDish ? 'None of your group\'s allergens are in the usual recipe. Recipes vary, so still ask.'
+             : 'None of your group\'s allergens found. Still give the package a quick check.');
+  }
+
+  // "Who can eat it" list for families and classes
+  function whoHtml(found, kind) {
+    if (isSolo() || !myAllergies.length) return '';
+    const order = { danger: 0, warn: 1, safe: 2 };
+    const st = members().map(p => ({ p: p, s: personStatus(p, found) })).sort((a, b) => order[a.s.level] - order[b.s.level]);
+    const pills = kind === 'dish'
+      ? { danger: 'Avoid', warn: 'Ask first', safe: 'Probably OK' }
+      : { danger: 'Not safe', warn: 'Careful', safe: 'OK' };
+    let shownSafe = 0, hidden = 0;
+    const rows = st.map(x => {
+      if (x.s.level === 'safe' && st.length > 8 && ++shownSafe > 3) { hidden++; return ''; }
+      const why = [...x.s.contains, ...x.s.may].map(id => allergenById(id).name.toLowerCase()).join(', ');
+      return `<li class="${x.s.level}">${avatar(x.p)}<span class="name">${escapeHtml(x.p.name)}</span>
+        <span class="pill">${pills[x.s.level]}</span>${why ? `<span class="words">${why}</span>` : ''}</li>`;
+    }).join('');
+    return `<h4 class="who-title">Who can eat it</h4><ul class="rows who">${rows}</ul>` +
+      (hidden ? `<p class="note">+ ${hidden} more ${pills.safe}</p>` : '');
+  }
+
   function renderLabelResult(container, text, extra = {}) {
     const found = checkLabel(text);
-    const mine = myAllergies.filter(id => found[id]);
-    const mineC = mine.filter(id => found[id].status === 'contains');
-    const mineM = mine.filter(id => found[id].status === 'may');
-
-    let v;
-    if (!myAllergies.length) v = verdictHtml('', 'wave', 'Almost there', 'Set your allergies', 'Tap "Set allergies" at the top so I know what to look for.');
-    else if (mineC.length) v = verdictHtml('danger', 'stop', 'Stop', 'Not safe for you',
-      'Contains ' + namesOf(mineC) + '.' + (mineM.length ? ' May also contain ' + namesOf(mineM) + '.' : ''));
-    else if (mineM.length) v = verdictHtml('warn', 'unsure', 'Careful', 'Might not be safe', 'May contain ' + namesOf(mineM) + '.');
-    else v = verdictHtml('safe', 'happy', 'Looks good', 'None of your allergens', 'Still give the package a quick check.');
-
     const ids = Object.keys(found).sort((a, b) =>
       (myAllergies.includes(b) - myAllergies.includes(a)) ||
       ((found[a].status === 'contains' ? 0 : 1) - (found[b].status === 'contains' ? 0 : 1)));
     const rows = ids.map(id => rowHtml(id, found[id].status, found[id].status === 'contains' ? 'Contains' : 'May contain', found[id].words)).join('');
 
-    container.innerHTML = v +
+    container.innerHTML = groupVerdict(found, 'label') +
       (extra.product ? `<p class="product">${escapeHtml(extra.product)}</p>` : '') +
-      (rows ? `<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens found in the ingredients.</p>') +
+      whoHtml(found, 'label') +
+      (rows ? `${isSolo() ? '' : '<h4 class="who-title">Allergens found</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens found in the ingredients.</p>') +
       `<p class="note">I can miss things. Always check the package and ask if you're unsure.</p>
        <details><summary>What I read</summary><pre>${escapeHtml(text)}</pre></details>`;
   }
@@ -713,23 +1046,17 @@
 
   function showDish(dish) {
     lastDish = dish;
-    const mineU = dish.usually.filter(id => myAllergies.includes(id));
-    const mineS = dish.sometimes.filter(id => myAllergies.includes(id));
+    const found = dishAsFound(dish);
     const name = dish.names[0];
 
     // Never say "safe" for food with no label: nobody can see what's inside
-    let v;
-    if (!myAllergies.length) v = verdictHtml('', 'wave', name, 'Set your allergies', 'Tap "Set allergies" at the top so I know what to look for.');
-    else if (mineU.length) v = verdictHtml('danger', 'stop', name, 'Usually has your allergen', 'Usually made with ' + namesOf(mineU) + '. Ask before eating.');
-    else if (mineS.length) v = verdictHtml('warn', 'unsure', name, 'Sometimes has your allergen', 'Some versions include ' + namesOf(mineS) + '. Ask before eating.');
-    else v = verdictHtml('safe', 'happy', name, 'Not usually in this dish', 'Recipes vary, so still ask the cook.');
-
     const rows = [...dish.usually.map(id => [id, 'contains']), ...dish.sometimes.map(id => [id, 'may'])]
       .sort((x, y) => myAllergies.includes(y[0]) - myAllergies.includes(x[0]))
       .map(([id, kind]) => rowHtml(id, kind, kind === 'contains' ? 'Usually' : 'Sometimes')).join('');
 
-    $('dishResult').innerHTML = v +
-      (rows ? `<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens in the usual recipe.</p>') +
+    $('dishResult').innerHTML = groupVerdict(found, 'dish', name) +
+      whoHtml(found, 'dish') +
+      (rows ? `${isSolo() ? '' : '<h4 class="who-title">Usually in it</h4>'}<ul class="rows">${rows}</ul>` : '<p class="note">No major allergens in the usual recipe.</p>') +
       '<p class="note">Based on common recipes, not a guarantee. Every cook is different.</p>' +
       (myAllergies.length ? '<div style="padding:16px 16px 0"><button class="btn big" id="toAsk">Ask the cook</button></div>' : '');
     const toAsk = $('toAsk');
@@ -751,18 +1078,34 @@
   // ASK THE COOK
   // ============================================================
   let cookLang = load('cookLang', 'en');
+  let cookFor = 'all';   // "all" or one person's id
+
+  function cookAllergies() {
+    const p = members().find(m => m.id === cookFor);
+    return p ? p.allergies : myAllergies;
+  }
   function cookHtml() {
-    if (!myAllergies.length) return null;
-    const c = cookCardText(cookLang, myAllergies);
+    const ids = cookAllergies();
+    if (!ids.length) return null;
+    const c = cookCardText(cookLang, ids);
     return `${c.before}<div class="list">${c.list}</div>${c.after}`;
   }
   function renderCook() {
     $('cookLangs').innerHTML = COOK_LANGUAGES.map(l =>
       `<button class="chip" data-lang="${l.id}" aria-pressed="${l.id === cookLang}">${l.label}</button>`).join('');
+    if (cookFor !== 'all' && !members().some(m => m.id === cookFor)) cookFor = 'all';
+    $('cookForRow').hidden = isSolo();
+    $('cookFor').innerHTML = `<button class="chip" data-for="all" aria-pressed="${cookFor === 'all'}">Everyone</button>` +
+      members().filter(m => m.allergies.length).map(m =>
+        `<button class="chip" data-for="${m.id}" aria-pressed="${cookFor === m.id}">${escapeHtml(m.name)}</button>`).join('');
     const html = cookHtml();
-    $('cookCard').innerHTML = html || '<span style="font-size:1rem; color:#6C7290">Set your allergies at the top and your card will appear here.</span>';
+    $('cookCard').innerHTML = html || '<span style="font-size:1rem; color:#6C7290">Add allergies at the top and your card will appear here.</span>';
     $('fullBtn').hidden = !html;
   }
+  $('cookFor').addEventListener('click', e => {
+    const c = e.target.closest('[data-for]');
+    if (c) { cookFor = c.dataset.for; renderCook(); }
+  });
   $('cookLangs').addEventListener('click', e => {
     const c = e.target.closest('[data-lang]');
     if (c) { cookLang = c.dataset.lang; save('cookLang', cookLang); renderCook(); }
@@ -826,6 +1169,8 @@
   // Start up
   // ============================================================
   function refreshAll() {
+    sync();
+    renderMe();
     renderHome();
     if (lastScan) renderLabelResult($('scanResult'), lastScan.text, { product: lastScan.product });
     if (lastLabelText) renderLabelResult($('labelResult'), lastLabelText);
@@ -833,12 +1178,21 @@
     renderCook();
   }
 
+  sync();
   renderMe();
   renderHome();
   renderOcrLangs();
   renderCook();
   showTab(load('tab', 'home'));
-  if (!myAllergies.length) openSheet(); // first time: ask about allergies
+
+  // Opened from a share link? Offer to add that group.
+  const joinCode = location.hash.startsWith('#join=') ? location.hash.slice(6) : '';
+  if (joinCode) {
+    history.replaceState(null, '', location.pathname);
+    pv.joining = decodeGroup(joinCode);
+    if (pv.joining) openPeople('join');
+  }
+  if ($('people').hidden && !people.groups.length) openPeople('start'); // first time
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
