@@ -7,22 +7,42 @@
 
   <!-- Tesseract.js: a free library that reads text from images (called OCR) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- Our own files -->
+  <script src="allergens.js"></script>
+  <script src="checker.js"></script>
 
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; }
-    h1 { font-size: 1.5rem; }
-    label { display: block; margin-top: 16px; font-weight: 600; }
-    select, input { font-size: 1rem; margin-top: 8px; width: 100%; padding: 10px; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; color: #1a1a1a; }
+    h1 { font-size: 1.5rem; margin-bottom: 4px; }
+    h2 { font-size: 1.1rem; margin-top: 28px; }
+    label.step { display: block; margin-top: 16px; font-weight: 600; }
+    select, input[type=file], textarea { font-size: 1rem; margin-top: 8px; width: 100%; padding: 10px; box-sizing: border-box; }
+    button { font-size: 1rem; padding: 10px 16px; margin-top: 8px; border: 0; border-radius: 8px; background: #1f6feb; color: white; }
+    .allergy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .allergy-grid label { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
     #preview { max-width: 100%; margin-top: 16px; display: none; border-radius: 8px; }
     #status { margin-top: 16px; color: #555; }
-    #output { white-space: pre-wrap; background: #f3f3f3; padding: 12px; border-radius: 8px; margin-top: 8px; min-height: 60px; }
+    #verdict { margin-top: 16px; padding: 20px; border-radius: 12px; font-size: 1.4rem; font-weight: 700; text-align: center; display: none; }
+    .safe { background: #dff6dd; color: #0b5d1e; }
+    .maybe { background: #fff4ce; color: #7a5b00; }
+    .unsafe { background: #fde7e9; color: #a4262c; }
+    .found { padding: 10px 12px; border-radius: 8px; margin-top: 8px; }
+    .found small { display: block; color: #555; margin-top: 2px; }
+    .disclaimer { font-size: 0.85rem; color: #666; margin-top: 16px; }
+    details { margin-top: 16px; }
+    #output { white-space: pre-wrap; background: #f3f3f3; padding: 12px; border-radius: 8px; margin-top: 8px; }
   </style>
 </head>
 <body>
   <h1>Allergen Label Reader</h1>
+  <p>Checks food labels in English, Hindi, Chinese, and Korean.</p>
 
-  <!-- Step 1: user picks the label's language -->
-  <label for="lang">1. Label language</label>
+  <!-- The user's allergies -->
+  <h2>My allergies</h2>
+  <div class="allergy-grid" id="allergyGrid"></div>
+
+  <h2>Check a label</h2>
+  <label class="step" for="lang">1. Label language</label>
   <select id="lang">
     <option value="eng">English</option>
     <option value="hin+eng">Hindi (हिन्दी)</option>
@@ -31,65 +51,145 @@
     <option value="kor+eng">Korean (한국어)</option>
   </select>
 
-  <!-- Step 2: user takes or picks a photo -->
-  <label for="photo">2. Take or choose a photo of the ingredient list</label>
+  <label class="step" for="photo">2. Take or choose a photo of the ingredient list</label>
   <input type="file" id="photo" accept="image/*">
+
+  <label class="step" for="typed">…or type / paste the ingredients</label>
+  <textarea id="typed" rows="3" placeholder="e.g. wheat flour, sugar, whey, peanuts"></textarea>
+  <button id="checkTyped">Check text</button>
 
   <img id="preview" alt="Label photo">
   <p id="status"></p>
 
-  <label>Text found:</label>
-  <div id="output"></div>
+  <!-- Results -->
+  <div id="verdict"></div>
+  <div id="foundList"></div>
+  <p class="disclaimer" id="disclaimer" style="display:none">
+    ⚠️ This app can miss things. Always double-check the package label, and ask if you're unsure.
+  </p>
+
+  <details id="rawBox" style="display:none">
+    <summary>Text the app read</summary>
+    <div id="output"></div>
+  </details>
 
   <script>
-    // Grab the page elements we need
     const photoInput = document.getElementById('photo');
     const langSelect = document.getElementById('lang');
     const preview    = document.getElementById('preview');
     const status     = document.getElementById('status');
     const output     = document.getElementById('output');
+    const verdict    = document.getElementById('verdict');
+    const foundList  = document.getElementById('foundList');
 
-    // Runs every time the user picks a photo
+    // ---------- My allergies (saved on this phone) ----------
+    let myAllergies = [];
+    try { myAllergies = JSON.parse(localStorage.getItem('myAllergies')) || []; } catch (e) {}
+
+    const grid = document.getElementById('allergyGrid');
+    for (const a of ALLERGENS) {
+      const checked = myAllergies.includes(a.id) ? 'checked' : '';
+      grid.innerHTML += `<label><input type="checkbox" value="${a.id}" ${checked}> ${a.emoji} ${a.name}</label>`;
+    }
+    grid.addEventListener('change', () => {
+      myAllergies = [...grid.querySelectorAll('input:checked')].map(i => i.value);
+      try { localStorage.setItem('myAllergies', JSON.stringify(myAllergies)); } catch (e) {}
+      if (lastText) showResults(lastText); // re-check the current label instantly
+    });
+
+    // ---------- Show results ----------
+    let lastText = '';
+
+    function showResults(text) {
+      lastText = text;
+      output.textContent = text;
+      document.getElementById('rawBox').style.display = 'block';
+      document.getElementById('disclaimer').style.display = 'block';
+
+      const found = checkLabel(text);
+
+      // Overall verdict for MY allergies
+      const mine = myAllergies.filter(id => found[id]);
+      const mineContains = mine.filter(id => found[id].status === 'contains');
+      verdict.style.display = 'block';
+      if (myAllergies.length === 0) {
+        verdict.className = 'maybe';
+        verdict.textContent = 'Pick your allergies above to get a safe / not safe answer';
+      } else if (mineContains.length > 0) {
+        verdict.className = 'unsafe';
+        verdict.textContent = '❌ NOT SAFE for you';
+      } else if (mine.length > 0) {
+        verdict.className = 'maybe';
+        verdict.textContent = '⚠️ MAY CONTAIN your allergen';
+      } else {
+        verdict.className = 'safe';
+        verdict.textContent = '✅ None of your allergens found';
+      }
+
+      // List every allergen found, with the words that gave it away
+      foundList.innerHTML = '';
+      for (const a of ALLERGENS) {
+        const r = found[a.id];
+        if (!r) continue;
+        const isMine = myAllergies.includes(a.id);
+        const cls = r.status === 'contains' ? (isMine ? 'unsafe' : '') : 'maybe';
+        const label = r.status === 'contains' ? 'Contains' : 'May contain';
+        foundList.innerHTML += `
+          <div class="found ${cls}" style="${cls ? '' : 'background:#f3f3f3'}">
+            ${a.emoji} <b>${label}: ${a.name}</b>${isMine ? ' — <b>your allergy</b>' : ''}
+            <small>Found: ${r.words.join(', ')}</small>
+          </div>`;
+      }
+      if (Object.keys(found).length === 0) {
+        foundList.innerHTML = '<div class="found" style="background:#f3f3f3">No major allergens detected in the text.</div>';
+      }
+    }
+
+    // ---------- Typed text ----------
+    document.getElementById('checkTyped').addEventListener('click', () => {
+      const t = document.getElementById('typed').value.trim();
+      if (t) { preview.style.display = 'none'; status.textContent = ''; showResults(t); }
+    });
+
+    // ---------- Photo ----------
+    let worker = null, workerLang = '';
+
     photoInput.addEventListener('change', async () => {
       const file = photoInput.files[0];
       if (!file) return;
 
-      // Show the photo on screen
       preview.src = URL.createObjectURL(file);
       preview.style.display = 'block';
-      output.textContent = '';
-
-      // "hin+eng" becomes ["hin", "eng"] so the reader knows both languages
-      const languages = langSelect.value.split('+');
-      status.textContent = 'Loading reader (first time can take ~30 seconds)...';
+      verdict.style.display = 'none';
+      foundList.innerHTML = '';
 
       try {
-        // Create the OCR reader for the chosen languages
-        const worker = await Tesseract.createWorker(languages, 1, {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              status.textContent = 'Reading text... ' + Math.round(m.progress * 100) + '%';
+        // Reuse the reader if the language hasn't changed (much faster on the 2nd scan)
+        if (!worker || workerLang !== langSelect.value) {
+          status.textContent = 'Loading reader (first time can take ~30 seconds)...';
+          if (worker) await worker.terminate();
+          worker = await Tesseract.createWorker(langSelect.value.split('+'), 1, {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                status.textContent = 'Reading text... ' + Math.round(m.progress * 100) + '%';
+              }
             }
-          }
-        });
+          });
+          workerLang = langSelect.value;
+        }
 
-        // Read the text from the photo
         const cleanImage = await prepareImage(file);
         const { data } = await worker.recognize(cleanImage);
-        output.textContent = data.text.trim() || '(No text found. Try a closer, sharper photo.)';
-        status.textContent = 'Done! Confidence: ' + Math.round(data.confidence) + '%';
-
-        await worker.terminate(); // free up memory
+        status.textContent = 'Done! Reading confidence: ' + Math.round(data.confidence) + '%';
+        showResults(data.text.trim() || '');
       } catch (err) {
         status.textContent = 'Something went wrong: ' + err.message;
       }
     });
 
-        // Makes the photo easier to read: right size, black-and-white, higher contrast
+    // Makes the photo easier to read: right size, black-and-white, higher contrast
     async function prepareImage(file) {
       const img = await createImageBitmap(file);
-
-      // Resize so the longest side is about 2000 pixels (big enough to read, fast enough to process)
       const scale = Math.min(3, 2000 / Math.max(img.width, img.height));
       const canvas = document.createElement('canvas');
       canvas.width  = Math.round(img.width * scale);
@@ -97,18 +197,15 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      // Go through every pixel: make it gray, then push darks darker and lights lighter
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const px = imageData.data;
       for (let i = 0; i < px.length; i += 4) {
         let gray = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-        gray = (gray - 128) * 1.5 + 128;          // boost contrast
-        gray = Math.max(0, Math.min(255, gray));  // keep within 0–255
+        gray = (gray - 128) * 1.5 + 128;
+        gray = Math.max(0, Math.min(255, gray));
         px[i] = px[i + 1] = px[i + 2] = gray;
       }
       ctx.putImageData(imageData, 0, 0);
-
-      // Show the cleaned-up version so we can see what the reader sees
       preview.src = canvas.toDataURL();
       return canvas;
     }
