@@ -8,7 +8,8 @@
 // It answers three kinds of questions:
 //   "allergy" -> other names for an allergy, plus translations
 //   "dish"    -> which allergens a dish usually has
-//   "photo"   -> what food is in a photo, and its usual allergens
+//   "photo"   -> what's in a photo: a dish (and its usual allergens),
+//                or a food label (and the ingredient text, copied out)
 // ============================================================
 
 // Only these websites are allowed to use this middleman
@@ -124,11 +125,16 @@ async function photoTask(body, env) {
   if (!/^[A-Za-z0-9+/=]+$/.test(image) || image.length < 100) return { error: "No photo received" };
 
   const prompt =
-`Look at this photo of food.
+`Look at this photo.
 Return JSON only, in this exact shape:
-{"isFood": true, "dish": "", "confidence": "high", "usually": [], "sometimes": [], "why": {}, "diet": {}, "note": ""}
+{"kind": "dish", "labelText": "", "isFood": true, "dish": "", "confidence": "high", "usually": [], "sometimes": [], "why": {}, "diet": {}, "note": ""}
 
 Rules:
+- "kind": "label" if the photo shows a food package's ingredient list or allergen statement (in any language).
+  "dish" if it shows food or a meal, or the front of a package with no ingredient list. "other" if it is not food.
+- If "kind" is "label": put the ingredient list and any "contains" / "may contain" sentences in "labelText",
+  copied exactly as written, in the label's own language and script (do not translate). Max 1500 characters.
+  Leave the dish fields empty.
 - "isFood": false if the photo is not food.
 - "dish": your best guess of the dish's name in English.
 - "confidence": "high", "medium", or "low" for how sure you are about the dish.
@@ -141,7 +147,9 @@ ${WHY_AND_DIET_RULES}
   const out = await askGemini(env, [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: image } }]);
   const dish = cleanDish({ known: out.isFood !== false, dish: out.dish, usually: out.usually, sometimes: out.sometimes,
                            why: out.why, diet: out.diet, note: out.note });
-  dish.isFood = out.isFood !== false;
+  dish.isFood = out.isFood !== false && out.kind !== "other";
+  dish.kind = ["dish", "label", "other"].includes(out.kind) ? out.kind : "dish";
+  dish.labelText = dish.kind === "label" ? cleanText(out.labelText, 1500) : "";
   dish.confidence = ["high", "medium", "low"].includes(out.confidence) ? out.confidence : "low";
   return dish;
 }

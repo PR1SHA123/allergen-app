@@ -65,7 +65,7 @@ function groupAllergies(group) {
 //   airborne -> like severe, AND they can react to it nearby (smell, steam, touch)
 const SEVERITY = [
   { id: "mild",     label: "Mild" },
-  { id: "normal",   label: "Allergy" },
+  { id: "normal",   label: "Moderate" },
   { id: "severe",   label: "Severe" },
   { id: "airborne", label: "Airborne" }
 ];

@@ -44,8 +44,9 @@ function aiDish(name) {
 }
 
 // photo file -> { isFood, dish, confidence, usually, sometimes, note }
-async function aiPhoto(file) {
-  const image = await shrinkPhoto(file, 768);
+// maxSide: bigger (1280) when the photo might be a label, so the AI can read small print
+async function aiPhoto(file, maxSide) {
+  const image = await shrinkPhoto(file, maxSide || 768);
   return askAI({ task: "photo", image: image });
 }
 
