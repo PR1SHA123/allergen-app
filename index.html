@@ -498,7 +498,9 @@
     <div class="tools">
     <h2 class="title">Read a label</h2>
     <p class="lede">Pick the label's language, then photograph the ingredient list.</p>
-    <div class="chips" id="ocrLangs" role="group" aria-label="Label language"></div>
+    <label class="hint" for="ocrLangSelect" style="display:block;margin:4px 0 6px">Label language</label>
+    <select id="ocrLangSelect" class="lang-select"></select>
+    <p class="hint" id="ocrLangNote" style="margin-top:6px"></p>
     <label class="btn big" style="margin-top:16px" for="photo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
       Take a photo
@@ -1379,15 +1381,23 @@
     { value: 'chi_sim+eng', label: '中文 简体' }, { value: 'chi_tra+eng', label: '中文 繁體' },
     { value: 'kor+eng', label: '한국어' }
   ];
-  let ocrLang = load('ocrLang', 'eng'), lastLabelText = '', worker = null, workerLang = '';
+  let ocrLang = load('ocrLang', 'ai'), lastLabelText = '', worker = null, workerLang = '';
 
+  // "ai" = any language: the AI reads and translates it (needs internet).
+  // The others are read on the phone itself, so they work offline.
   function renderOcrLangs() {
-    $('ocrLangs').innerHTML = OCR_LANGS.map(l =>
-      `<button class="chip" data-v="${l.value}" aria-pressed="${l.value === ocrLang}">${l.label}</button>`).join('');
+    const opt = (v, label) => `<option value="${v}"${v === ocrLang ? ' selected' : ''}>${label}</option>`;
+    $('ocrLangSelect').innerHTML =
+      `<optgroup label="✨ Read by AI (needs internet)">${opt('ai', 'Any language: Spanish, Japanese, Arabic…')}</optgroup>` +
+      `<optgroup label="Read on your phone (works offline)">` +
+      OCR_LANGS.map(l => opt(l.value, { eng: 'English', 'hin+eng': 'Hindi · हिन्दी', 'chi_sim+eng': 'Chinese, Simplified · 中文 简体',
+        'chi_tra+eng': 'Chinese, Traditional · 中文 繁體', 'kor+eng': 'Korean · 한국어' }[l.value] || l.label)).join('') + '</optgroup>';
+    $('ocrLangNote').textContent = ocrLang === 'ai'
+      ? '✨ The AI reads the label in any language and translates it. Both versions are checked.'
+      : 'Read on your phone, so it works without internet.';
   }
-  $('ocrLangs').addEventListener('click', e => {
-    const c = e.target.closest('.chip');
-    if (c) { ocrLang = c.dataset.v; save('ocrLang', ocrLang); renderOcrLangs(); }
+  $('ocrLangSelect').addEventListener('change', () => {
+    ocrLang = $('ocrLangSelect').value; save('ocrLang', ocrLang); renderOcrLangs();
   });
 
   function setProgress(p) {
@@ -1401,6 +1411,7 @@
     $('labelResult').innerHTML = '';
     $('photoPreview').hidden = false;
     $('photoPreview').src = URL.createObjectURL(file);
+    if (ocrLang === 'ai') { await readLabelWithAI(file); $('photo').value = ''; return; }
     setProgress(0);
     try {
       const data = await ocrRead(file, ocrLang, msg => { $('labelStatus').textContent = msg; }, setProgress);
@@ -1417,6 +1428,40 @@
     }
     $('photo').value = '';
   });
+
+  // Any language: the AI copies the label as written and translates it to English; both get checked.
+  // For Hindi, Chinese and Korean, the phone also reads it a second time.
+  async function readLabelWithAI(file) {
+    $('labelStatus').textContent = '✨ Reading the label…';
+    let r;
+    try { r = await aiPhoto(file, 1280); }
+    catch (err) {
+      $('labelStatus').textContent = err.message + ' Without internet, pick the label\'s language under "Read on your phone".';
+      return;
+    }
+    if (!r || r.kind !== 'label' || !r.labelText) {
+      $('labelStatus').textContent = 'I couldn\'t find an ingredient list in that photo. Get closer to the ingredients, with good light.';
+      return;
+    }
+    const aiText = r.labelText + (r.labelEnglish ? '\n\n' + r.labelEnglish : '');
+    lastLabelText = aiText;
+    renderLabelResult($('labelResult'), aiText);
+    const reader = ocrLangFor(r.labelText);
+    $('labelStatus').textContent = reader ? '✨ Read and translated by the AI. Double-checking on the phone…'
+                                          : '✨ Read and translated by the AI. Check the package too.';
+    if (!reader) return;
+    try {
+      const o = await ocrRead(file, reader, () => {}, () => {});
+      if (lastLabelText !== aiText) return;
+      if (o.confidence >= 40 && o.text.trim()) {
+        lastLabelText = aiText + '\n\n' + o.text.trim();
+        renderLabelResult($('labelResult'), lastLabelText);
+        $('labelStatus').textContent = '✅ Label read twice: by the AI and by the on-phone reader.';
+        return;
+      }
+    } catch (e) {}
+    if (lastLabelText === aiText) $('labelStatus').textContent = '✨ Read and translated by the AI. Check the package too.';
+  }
 
   $('checkTyped').addEventListener('click', () => {
     const t = $('typed').value.trim();
@@ -1702,7 +1747,7 @@
 
     // 4. No AI answer: try reading it as a label on the phone
     try {
-      const r = await ocrRead(file, ocrLang, smartStatus, smartProgress);
+      const r = await ocrRead(file, ocrLang === 'ai' ? 'eng' : ocrLang, smartStatus, smartProgress);
       smartProgress(null);
       if (looksLikeLabel(r.text, r.confidence)) {
         smartStatus('');
