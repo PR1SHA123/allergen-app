@@ -84,14 +84,14 @@ function voiceFor(tag) {
 function hasVoice(langId) {
   if (!canSpeak()) return false;
   if (!speechSynthesis.getVoices().length) return null;
-  return !!voiceFor(SPEECH_LANGS[langId] || "en-US");
+  return !!voiceFor(SPEECH_LANGS[langId] || langId || "en-US");
 }
 
 // Say some text out loud. langId is one of: en, hi, zh-s, zh-t, ko
 function speak(text, langId, onEnd) {
   if (!canSpeak() || !text) return false;
   speechSynthesis.cancel();
-  const tag = SPEECH_LANGS[langId] || "en-US";
+  const tag = SPEECH_LANGS[langId] || langId || "en-US";   // or a code like "ja-JP" from the AI
   const u = new SpeechSynthesisUtterance(text);
   u.lang = tag;
   const v = voiceFor(tag);

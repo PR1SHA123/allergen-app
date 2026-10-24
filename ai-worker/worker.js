@@ -9,7 +9,8 @@
 //   "allergy" -> other names for an allergy, plus translations
 //   "dish"    -> which allergens a dish usually has
 //   "photo"   -> what's in a photo: a dish (and its usual allergens),
-//                or a food label (and the ingredient text, copied out)
+//                or a food label (and the ingredient text, copied out + in English)
+//   "translate" -> the Ask-the-cook card in any language
 // ============================================================
 
 // Only these websites are allowed to use this middleman
@@ -62,6 +63,7 @@ export default {
       if (body.task === "allergy") return reply(await allergyTask(body, env), 200, cors);
       if (body.task === "dish")    return reply(await dishTask(body, env), 200, cors);
       if (body.task === "photo")   return reply(await photoTask(body, env), 200, cors);
+      if (body.task === "translate") return reply(await translateTask(body, env), 200, cors);
       return reply({ error: "Unknown task" }, 400, cors);
     } catch (e) {
       return reply({ error: "The AI didn't answer. Try again in a minute." }, 502, cors);
@@ -127,13 +129,15 @@ async function photoTask(body, env) {
   const prompt =
 `Look at this photo.
 Return JSON only, in this exact shape:
-{"kind": "dish", "labelText": "", "isFood": true, "dish": "", "confidence": "high", "usually": [], "sometimes": [], "why": {}, "diet": {}, "note": ""}
+{"kind": "dish", "labelText": "", "labelEnglish": "", "isFood": true, "dish": "", "confidence": "high", "usually": [], "sometimes": [], "why": {}, "diet": {}, "note": ""}
 
 Rules:
 - "kind": "label" if the photo shows a food package's ingredient list or allergen statement (in any language).
   "dish" if it shows food or a meal, or the front of a package with no ingredient list. "other" if it is not food.
 - If "kind" is "label": put the ingredient list and any "contains" / "may contain" sentences in "labelText",
   copied exactly as written, in the label's own language and script (do not translate). Max 1500 characters.
+  Also put an English translation of that same text in "labelEnglish": keep every ingredient and every
+  "contains" / "may contain" sentence, translate word for word, do not summarize. Use "" if the label is already in English.
   Leave the dish fields empty.
 - "isFood": false if the photo is not food.
 - "dish": your best guess of the dish's name in English.
@@ -150,8 +154,41 @@ ${WHY_AND_DIET_RULES}
   dish.isFood = out.isFood !== false && out.kind !== "other";
   dish.kind = ["dish", "label", "other"].includes(out.kind) ? out.kind : "dish";
   dish.labelText = dish.kind === "label" ? cleanText(out.labelText, 1500) : "";
+  dish.labelEnglish = dish.kind === "label" ? cleanText(out.labelEnglish, 1500) : "";
   dish.confidence = ["high", "medium", "low"].includes(out.confidence) ? out.confidence : "low";
   return dish;
+}
+
+// ---------- Task 4: translate the Ask-the-cook card ----------
+async function translateTask(body, env) {
+  const lang = cleanText(body.lang, 40);
+  const lines = Array.isArray(body.lines) ? body.lines.slice(0, 12).map(l => cleanText(l, 400)) : [];
+  if (!lang || !lines.length) return { error: "Nothing to translate" };
+
+  const prompt =
+`These lines are a card that a person with food allergies shows to a restaurant server or cook.
+Translate every line into: "${lang}".
+Return JSON only, in this exact shape:
+{"language": "", "code": "", "lines": []}
+
+Rules:
+- "language": the language's name in English (for example "Japanese"). If "${lang}" is not a real language, return "" and an empty "lines".
+- "code": the language's BCP-47 code for text-to-speech, like "ja-JP", "es-MX", "vi-VN", "ar-SA".
+- "lines": exactly ${lines.length} strings, one for each line, in the same order.
+- Keep the meaning exact. Do not add, remove, or soften anything; a missed allergen could hurt someone.
+- Use the everyday words a cook in that language would understand for each food (for example the local word for peanuts).
+- Write it in that language's normal script.
+
+Lines:
+${JSON.stringify(lines)}`;
+
+  const out = await askGemini(env, [{ text: prompt }]);
+  const result = Array.isArray(out.lines) ? out.lines.map(l => cleanText(l, 600)) : [];
+  if (!out.language || result.length !== lines.length || result.some(l => !l)) {
+    return { error: "I couldn't translate into \"" + lang + "\". Check the spelling and try again." };
+  }
+  const code = /^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$/.test(String(out.code || "")) ? out.code : "";
+  return { language: cleanText(out.language, 40), code: code, lines: result };
 }
 
 // ---------- Talking to Gemini ----------

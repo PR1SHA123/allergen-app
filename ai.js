@@ -61,3 +61,9 @@ async function shrinkPhoto(file, maxSide) {
   canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
 }
+
+// Translate the Ask-the-cook card: lang = "Japanese", lines = ["I have a serious food allergy…", …]
+// -> { language: "Japanese", code: "ja-JP", lines: [ … ] }
+function aiTranslate(lang, lines) {
+  return askAI({ task: "translate", lang: lang, lines: lines });
+}

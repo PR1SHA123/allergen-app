@@ -263,6 +263,12 @@
       box-shadow: 0 5px 0 #4A3B35;
       padding: 22px 20px; font-size: 1.22rem; line-height: 1.55; font-weight: 700;
     }
+    .lang-select { width: 100%; appearance: none; -webkit-appearance: none; background: var(--surface)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%235B6CFF' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 16px center;
+      border: 2px solid var(--line); border-radius: 18px; padding: 13px 44px 13px 16px; font: inherit; font-size: 1rem; font-weight: 800; color: var(--ink); }
+    .lang-select:focus { outline: none; border-color: var(--primary); }
+    .cook-card .translating { font-size: 1rem; color: #6C7290; margin: 0 0 10px; }
+    .cook-card .cook-error { font-size: 1rem; color: #B42318; margin: 0 0 10px; }
     .cook-card .list { font-weight: 900; font-size: 1.55rem; line-height: 1.25; color: #C8102E; margin: 12px 0; }
     .fullscreen {
       position: fixed; inset: 0; z-index: 50; background: #FFFDF6; color: #17130F;
@@ -539,9 +545,18 @@
     <button class="back-home" data-go="home">‹ Home</button>
     <h2 class="title">Ask the cook</h2>
     <p class="lede">Show this to the server, cook, or host. Pick their language.</p>
-    <div class="chips" id="cookLangs" role="group" aria-label="Card language"></div>
+    <label class="hint" for="cookLangSelect" style="display:block;margin:4px 0 6px">Their language</label>
+    <select id="cookLangSelect" class="lang-select"></select>
+    <div id="moreLangs" hidden>
+      <div class="field-row" style="margin-top:10px">
+        <input type="text" id="langInput" maxlength="40" placeholder="Type a language, e.g. Swahili" aria-label="Language">
+        <button class="btn" id="langGo">Translate</button>
+      </div>
+      <p class="status" id="langError"></p>
+    </div>
+    <p class="hint" id="aiLangNote" hidden>✨ Translated by AI. If you can, ask someone who speaks the language to check the card.</p>
     <div class="for-row" id="cookForRow"><p class="hint">Who is it for?</p><div class="chips" id="cookFor"></div></div>
-    <div class="cook-card" id="cookCard"></div>
+    <div class="cook-card" id="cookCard" dir="auto"></div>
     <button class="btn big ghost" id="sayBtn" style="margin-top:16px" hidden>🔊 Say it out loud</button>
     <p class="hint" id="voiceHint" hidden></p>
     <button class="btn big" id="fullBtn" style="margin-top:16px">Show full screen</button>
@@ -618,7 +633,7 @@
 <div class="fullscreen" id="fullCard" hidden>
   <button class="btn close" id="fullClose">Close</button>
   <button class="btn ghost say" id="fullSay" hidden>🔊 Play</button>
-  <div id="fullCardText"></div>
+  <div id="fullCardText" dir="auto"></div>
 </div>
 
 <script>
@@ -1616,6 +1631,8 @@
   }
   // Pick the on-phone reader's language from the label's alphabet
   function ocrLangFor(text) {
+    // Japanese, Arabic, Thai, Russian, Hebrew…: the on-phone reader doesn't have these, so AI only
+    if (/[\u3040-\u30ff\u0600-\u06ff\u0e00-\u0e7f\u0400-\u04ff\u0590-\u05ff]/.test(text)) return null;
     if (/[가-힯]/.test(text)) return 'kor+eng';
     if (/[ऀ-ॿ]/.test(text)) return 'hin+eng';
     if (/[一-鿿]/.test(text)) return /[們這為國產營養麵鹽劑醬雞蝦魚麥]/.test(text) ? 'chi_tra+eng' : 'chi_sim+eng';
@@ -1651,19 +1668,24 @@
 
     if (ai && ai.kind === 'label' && ai.labelText) {
       smartStatus('');
-      showLabelFrom(file, ai.labelText, '✨ Ingredient label found. Double-checking it with the on-phone reader…');
+      // Check the label as written AND its English translation, so any language works
+      const aiText = ai.labelText + (ai.labelEnglish ? '\n\n' + ai.labelEnglish : '');
+      const reader = ocrLangFor(ai.labelText);
+      showLabelFrom(file, aiText, reader ? '✨ Ingredient label found. Double-checking it with the on-phone reader…'
+                                         : '✨ Label read and translated by the AI. Check the package too.');
+      if (!reader) return;   // the on-phone reader doesn't know this alphabet
       // 3. Read it again on the phone and combine both readings
       try {
-        const r = await ocrRead(file, ocrLangFor(ai.labelText), () => {}, () => {});
-        if (lastLabelText !== ai.labelText) return;   // they've moved on to another photo
+        const r = await ocrRead(file, reader, () => {}, () => {});
+        if (lastLabelText !== aiText) return;   // they've moved on to another photo
         if (r.confidence >= 40 && r.text.trim()) {
-          lastLabelText = ai.labelText + '\n\n' + r.text.trim();
+          lastLabelText = aiText + '\n\n' + r.text.trim();
           renderLabelResult($('labelResult'), lastLabelText);
           $('labelStatus').textContent = '✅ Label read twice: by the AI and by the on-phone reader.';
           return;
         }
       } catch (e) {}
-      if (lastLabelText === ai.labelText) $('labelStatus').textContent = '✨ Label read by the AI. Check the package too.';
+      if (lastLabelText === aiText) $('labelStatus').textContent = '✨ Label read by the AI. Check the package too.';
       return;
     }
 
@@ -1728,24 +1750,102 @@
     cookPeople().forEach(p => p.allergies.forEach(id => ids.add(id)));
     return myAllergies.filter(id => ids.has(id));   // keep the usual order
   }
+  // ---------- More languages (translated by AI, saved on the phone) ----------
+  let aiLangs = load('aiLangs', []);    // [{ name: "Japanese", code: "ja-JP" }]
+  let aiCards = load('aiCards', {});    // "Japanese|<English lines>" -> translated lines
+  const aiErrors = {}, aiPending = {};
+  const isAiLang = l => String(l).startsWith('ai:');
+  const aiName = l => String(l).slice(3);
+  // Common languages at restaurants (translated by AI), in alphabetical order
+  const LANG_SUGGEST = ['Amharic', 'Arabic', 'Bengali', 'Burmese', 'Cantonese', 'French', 'German', 'Greek',
+    'Gujarati', 'Hebrew', 'Indonesian', 'Italian', 'Japanese', 'Khmer', 'Lao', 'Malay', 'Marathi', 'Nepali',
+    'Persian', 'Polish', 'Portuguese', 'Punjabi', 'Russian', 'Somali', 'Spanish', 'Tagalog', 'Tamil', 'Telugu',
+    'Thai', 'Turkish', 'Ukrainian', 'Urdu', 'Vietnamese'];
+  const BUILT_IN_LABELS = { en: 'English', hi: 'Hindi · हिन्दी', 'zh-s': 'Chinese, Simplified · 中文 简体',
+                            'zh-t': 'Chinese, Traditional · 中文 繁體', ko: 'Korean · 한국어' };
+  // The language code the phone's voice needs
+  function speechLang() {
+    if (!isAiLang(cookLang)) return cookLang;
+    const e = aiLangs.find(x => x.name === aiName(cookLang));
+    return (e && e.code) || 'en-US';
+  }
+
   function cookHtml() {
     const ids = cookAllergies();
     const ps = cookPeople();
     const diets = [...new Set(ps.flatMap(p => p.diets || []))];
     if (!ids.length && !diets.length) return null;
     const lv = ps.flatMap(p => p.allergies.map(id => levelOf(p, id)));
-    const c = cookCardText(cookLang, ids, (id, lang) => {
+    const ai = isAiLang(cookLang);
+    const c = cookCardText(ai ? 'en' : cookLang, ids, (id, lang) => {
       const ca = allCustoms().find(x => x.id === id);
       return ca ? ((ca.names && ca.names[lang]) || ca.name) : id;
     }, { severe: lv.includes('severe') || lv.includes('airborne'), airborne: lv.includes('airborne'), diets: diets });
-    return (c.before ? `${c.before}<div class="list">${c.list}</div>` : '') +
+    if (!ids.length) c.after = '';
+
+    let top = '';
+    if (ai) {
+      // Every piece of the English card, in order; swap in the translation once we have it
+      const fields = [['before', c.before], ['list', c.list], ...c.notes.map((n, i) => ['note' + i, n]),
+                      ['dietIntro', c.dietIntro], ['diets', c.diets.join('; ')], ['after', c.after]].filter(f => f[1]);
+      const name = aiName(cookLang), lines = fields.map(f => f[1]);
+      const key = name + '|' + JSON.stringify(lines);
+      const done = aiCards[key];
+      if (done) {
+        const t = {};
+        fields.forEach((f, i) => { t[f[0]] = escapeHtml(done[i]); });
+        c.before = t.before || ''; c.list = t.list || ''; c.notes = c.notes.map((n, i) => t['note' + i]);
+        c.dietIntro = t.dietIntro || ''; c.diets = t.diets ? [t.diets] : []; c.after = t.after || '';
+      } else if (aiErrors[name]) {
+        top = `<p class="cook-error">${escapeHtml(aiErrors[name])} <button class="chip" id="retryLang">Try again</button></p>`;
+      } else {
+        top = `<p class="translating">✨ Translating into ${escapeHtml(name)}… (showing English for now)</p>`;
+        translateCard(name, key, lines);
+      }
+    }
+    return top + (c.before ? `${c.before}<div class="list">${c.list}</div>` : '') +
       c.notes.map(n => `<p class="cook-note">⚠️ ${n}</p>`).join('') +
       (c.diets.length ? `<p class="cook-diet">${c.dietIntro} <b>${c.diets.join('; ')}</b></p>` : '') +
-      (ids.length ? c.after : '');
+      c.after;
+  }
+
+  async function translateCard(name, key, lines) {
+    if (aiPending[key]) return;
+    aiPending[key] = true;
+    try {
+      const r = await aiTranslate(name, lines);
+      const real = r.language || name;
+      aiCards[real + '|' + JSON.stringify(lines)] = r.lines;
+      const keys = Object.keys(aiCards);
+      if (keys.length > 40) delete aiCards[keys[0]];   // keep only the 40 newest translations
+      save('aiCards', aiCards);
+      aiLangs = aiLangs.filter(x => x.name !== real && x.name !== name).concat({ name: real, code: r.code || '' });
+      save('aiLangs', aiLangs);
+      if (cookLang === 'ai:' + name) { cookLang = 'ai:' + real; save('cookLang', cookLang); }
+    } catch (err) {
+      aiErrors[name] = err.message;
+      // A language they typed that didn't work: go back to English and show why under the box
+      if (!LANG_SUGGEST.includes(name) && !aiLangs.some(x => x.name === name) && cookLang === 'ai:' + name) {
+        cookLang = 'en'; save('cookLang', cookLang);
+        $('moreLangs').hidden = false;
+        $('langError').textContent = err.message;
+      }
+    } finally {
+      delete aiPending[key];
+      renderCook();
+      if (!$('fullCard').hidden) $('fullCardText').innerHTML = cookHtml();
+    }
   }
   function renderCook() {
-    $('cookLangs').innerHTML = COOK_LANGUAGES.map(l =>
-      `<button class="chip" data-lang="${l.id}" aria-pressed="${l.id === cookLang}">${l.label}</button>`).join('');
+    // Languages they typed themselves before also go in the list
+    const ai = [...new Set(LANG_SUGGEST.concat(aiLangs.map(x => x.name), isAiLang(cookLang) ? [aiName(cookLang)] : []))]
+      .sort((a, b) => a.localeCompare(b));
+    const opt = (value, label) => `<option value="${escapeHtml(value)}"${value === cookLang && $('moreLangs').hidden ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    $('cookLangSelect').innerHTML =
+      `<optgroup label="Checked translations">${COOK_LANGUAGES.map(l => opt(l.id, BUILT_IN_LABELS[l.id] || l.label)).join('')}</optgroup>` +
+      `<optgroup label="✨ Translated by AI">${ai.map(n => opt('ai:' + n, n)).join('')}</optgroup>` +
+      `<option value="other"${$('moreLangs').hidden ? '' : ' selected'}>Other language…</option>`;
+    $('aiLangNote').hidden = !isAiLang(cookLang);
     if (cookFor !== 'all' && !members().some(m => m.id === cookFor)) cookFor = 'all';
     $('cookForRow').hidden = isSolo();
     $('cookFor').innerHTML = `<button class="chip" data-for="all" aria-pressed="${cookFor === 'all'}">Everyone</button>` +
@@ -1762,9 +1862,31 @@
     const c = e.target.closest('[data-for]');
     if (c) { cookFor = c.dataset.for; renderCook(); }
   });
-  $('cookLangs').addEventListener('click', e => {
-    const c = e.target.closest('[data-lang]');
-    if (c) { cookLang = c.dataset.lang; save('cookLang', cookLang); renderCook(); }
+  $('cookLangSelect').addEventListener('change', () => {
+    const v = $('cookLangSelect').value;
+    if (v === 'other') { $('moreLangs').hidden = false; $('langInput').focus(); return; }
+    $('moreLangs').hidden = true;
+    cookLang = v; save('cookLang', cookLang); renderCook();
+  });
+  function pickLanguage(typed) {
+    let name = String(typed || '').trim().replace(/\s+/g, ' ');
+    if (!name) { $('langInput').focus(); return; }
+    name = name.charAt(0).toUpperCase() + name.slice(1);
+    // One of the built-in languages? Use the checked translation instead of AI
+    const builtIn = { english: 'en', hindi: 'hi', chinese: 'zh-s', 'simplified chinese': 'zh-s', mandarin: 'zh-s',
+                      'traditional chinese': 'zh-t', cantonese: 'zh-t', korean: 'ko' }[name.toLowerCase()];
+    delete aiErrors[name];
+    $('langError').textContent = '';
+    cookLang = builtIn || 'ai:' + name;
+    save('cookLang', cookLang);
+    $('langInput').value = '';
+    $('moreLangs').hidden = true;
+    renderCook();
+  }
+  $('langGo').addEventListener('click', () => pickLanguage($('langInput').value));
+  $('langInput').addEventListener('keydown', e => { if (e.key === 'Enter') pickLanguage($('langInput').value); });
+  $('cookCard').addEventListener('click', e => {
+    if (e.target.closest('#retryLang')) { delete aiErrors[aiName(cookLang)]; renderCook(); }
   });
   $('fullBtn').addEventListener('click', () => { $('fullCardText').innerHTML = cookHtml(); $('fullCard').hidden = false; });
   $('fullClose').addEventListener('click', () => { stopSpeaking(); resetSay(); $('fullCard').hidden = true; });
@@ -1775,19 +1897,21 @@
   function sayCard(btn, stopLabel) {
     if (isSpeaking()) { stopSpeaking(); resetSay(); return; }
     // One line per part of the card, with a pause (full stop) after each
-    const stop = cookLang.startsWith('zh') ? '。' : cookLang === 'hi' ? '। ' : '. ';
-    const text = $('cookCard').innerText.replace(/⚠️/g, '').split(/\n+/).map(l => l.trim()).filter(Boolean)
+    const tag = speechLang();
+    const stop = /^(zh|ja)/.test(tag) ? '。' : /^hi/.test(tag) ? '। ' : '. ';
+    const text = $('cookCard').innerText.replace(/⚠️/g, '').replace(/✨ Translating.*\n?/, '').split(/\n+/).map(l => l.trim()).filter(Boolean)
       .map(l => /[.!?。！？।:：]$/.test(l) ? l + ' ' : l + stop).join('').trim();
     btn.textContent = stopLabel;
-    speak(text, cookLang, resetSay);
+    speak(text, tag, resetSay);
   }
   $('sayBtn').addEventListener('click', () => sayCard($('sayBtn'), '⏹ Stop'));
   $('fullSay').addEventListener('click', () => sayCard($('fullSay'), '⏹ Stop'));
   function updateVoiceHint() {
-    const has = hasVoice(cookLang);
+    const has = hasVoice(speechLang());
     const lang = COOK_LANGUAGES.find(l => l.id === cookLang);
+    const label = lang ? lang.label : aiName(cookLang);
     $('voiceHint').hidden = has !== false;
-    if (has === false) $('voiceHint').textContent = 'This phone may not have a ' + lang.label + ' voice yet. On iPhone, add one in Settings → Accessibility → Spoken Content → Voices. On Android, Settings → Text-to-speech.';
+    if (has === false) $('voiceHint').textContent = 'This phone may not have a ' + label + ' voice yet. On iPhone, add one in Settings → Accessibility → Spoken Content → Voices. On Android, Settings → Text-to-speech.';
   }
   if (canSpeak()) speechSynthesis.addEventListener && speechSynthesis.addEventListener('voiceschanged', () => { if (!$('screen-ask').hidden) updateVoiceHint(); });
 
